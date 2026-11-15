@@ -19,6 +19,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import zipfile
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -31,7 +32,8 @@ CACHE_TPEX = CACHE / "tpex"
 CACHE_TAIEX = CACHE / "taiex"
 CACHE_TX = CACHE / "tx"
 CACHE_OTC = CACHE / "otc"
-for _p in (CACHE_TWSE, CACHE_TPEX, CACHE_TAIEX, CACHE_TX, CACHE_OTC):
+CACHE_TXTICK = CACHE / "txtick"
+for _p in (CACHE_TWSE, CACHE_TPEX, CACHE_TAIEX, CACHE_TX, CACHE_OTC, CACHE_TXTICK):
     _p.mkdir(parents=True, exist_ok=True)
 
 TAIPEI = ZoneInfo("Asia/Taipei")
@@ -519,7 +521,10 @@ def fetch_taiex_month(year: int, month: int, use_cache: bool = True) -> list[dic
     return rows
 
 
-def parse_tx_csv(raw: bytes) -> list[dict]:
+def parse_tx_csv(raw: bytes, sessions: tuple[str, ...] = ("一般",)) -> list[dict]:
+    """TAIFEX futDataDown CSV. 交易時段 一般 = day session (08:45–13:45);
+    盤後 = night session. A 盤後 row dated D is the night session that started
+    15:00 on the previous trading day and belongs to trading day D."""
     text = None
     for enc in ("utf-8-sig", "cp950", "big5"):
         try:
@@ -534,8 +539,8 @@ def parse_tx_csv(raw: bytes) -> list[dict]:
     r = csv.DictReader(io.StringIO(text))
     rows = []
     for row in r:
-        sess = (row.get("交易時段") or "").strip()
-        if sess and sess != "一般":
+        sess = (row.get("交易時段") or "").strip() or "一般"
+        if sess not in sessions:
             continue
         ds = (row.get("交易日期") or "").strip().replace("/", "-")
         try:
@@ -551,7 +556,7 @@ def parse_tx_csv(raw: bytes) -> list[dict]:
             "volume": fnum(row.get("成交量")),
             "settle": fnum(row.get("結算價")),
             "contract": (row.get("到期月份(週別)") or "").strip(),
-            "session": "day",
+            "session": "day" if sess == "一般" else "night",
         }
         if rec["high"] is None or rec["low"] is None or rec["close"] is None:
             continue
@@ -559,11 +564,11 @@ def parse_tx_csv(raw: bytes) -> list[dict]:
     return rows
 
 
-def fetch_tx_month(year: int, month: int, use_cache: bool = True) -> list[dict]:
+def fetch_tx_month(year: int, month: int, use_cache: bool = True, sessions: tuple[str, ...] = ("一般",)) -> list[dict]:
     key = f"{year:04d}-{month:02d}"
     path = CACHE_TX / f"{key}.csv"
     if use_cache and path.exists() and path.stat().st_size > 50:
-        rows = parse_tx_csv(path.read_bytes())
+        rows = parse_tx_csv(path.read_bytes(), sessions)
         if rows:
             return rows
     last = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
@@ -579,13 +584,102 @@ def fetch_tx_month(year: int, month: int, use_cache: bool = True) -> list[dict]:
         "queryStartDate": start,
         "queryEndDate": end,
     })
-    rows = parse_tx_csv(raw)
+    rows = parse_tx_csv(raw, sessions)
     if rows:
         path.write_bytes(raw)
     else:
         # keep failed body for debug
         (CACHE_TX / f"{key}_failed.bin").write_bytes(raw[:4000])
     return rows
+
+
+def third_wednesday(y: int, m: int) -> date:
+    d = date(y, m, 1)
+    d += timedelta(days=(2 - d.weekday()) % 7)
+    return d + timedelta(days=14)
+
+
+def tx_full_contract(asof: date) -> str:
+    """Nearest monthly contract that does not expire on/before asof
+    (on settlement day the next month is used)."""
+    y, m = asof.year, asof.month
+    if third_wednesday(y, m) <= asof:
+        m += 1
+        if m == 13:
+            y, m = y + 1, 1
+    return f"{y:04d}{m:02d}"
+
+
+def tx_full_bars(rows_all: list[dict], contract: str) -> list[dict]:
+    """Merge day + night rows of one contract per trading day (full session)."""
+    by: dict[date, dict] = {}
+    for r in rows_all:
+        if r.get("contract") != contract:
+            continue
+        b = by.setdefault(r["date"], {"day": None, "night": None})
+        b[r["session"]] = r
+    out = []
+    for d, b in sorted(by.items()):
+        day, night = b["day"], b["night"]
+        if not day:
+            continue
+        hs = [x["high"] for x in (day, night) if x and x.get("high") is not None]
+        ls = [x["low"] for x in (day, night) if x and x.get("low") is not None]
+        out.append({
+            "symbol": "TXF", "name": "台指期全盤", "market": "FUT",
+            "date": d, "open": (night or day).get("open"),
+            "high": max(hs), "low": min(ls), "close": day["close"],
+            "volume": (day.get("volume") or 0) + ((night or {}).get("volume") or 0),
+            "amount": None, "contract": contract, "has_night": bool(night),
+        })
+    return out
+
+
+def fetch_tx_full_vwap(d: date, contract: str, use_cache: bool = True) -> float | None:
+    """Full-session (night + day) VWAP of one TX contract from TAIFEX's public
+    daily tick file (published ~16:45 Taipei). Spread trades are excluded."""
+    path = CACHE_TXTICK / f"{iso(d)}_{contract}.json"
+    if use_cache and path.exists():
+        try:
+            return json.loads(path.read_text())["vwap"]
+        except Exception:
+            pass
+    url = ("https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/"
+           f"Daily_{d.year:04d}_{d.month:02d}_{d.day:02d}.zip")
+    try:
+        raw = http_get(url, tries=2, timeout=120)
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+    except Exception as e:
+        log(f"  TX tick file not available for {iso(d)} ({e})")
+        return None
+    pv = Decimal(0)
+    vol = Decimal(0)
+    day_seen = False
+    ymd = yyyymmdd(d)
+    for nm in zf.namelist():
+        with zf.open(nm) as fh:
+            for bline in fh:
+                if not bline.startswith(b"2") or b",TX " not in bline[:20]:
+                    continue
+                parts = bline.decode("ascii", "ignore").split(",")
+                if len(parts) < 6 or parts[1].strip() != "TX" or parts[2].strip() != contract:
+                    continue
+                try:
+                    px = Decimal(parts[4].strip())
+                    q = Decimal(parts[5].strip())
+                except Exception:
+                    continue
+                t = parts[3].strip()
+                if parts[0].strip() == ymd and "084500" <= t <= "134500":
+                    day_seen = True
+                pv += px * q
+                vol += q
+    if vol == 0 or not day_seen:
+        log(f"  TX tick file for {iso(d)} has no {contract} day trades")
+        return None
+    vwap = float(pv / vol)
+    path.write_text(json.dumps({"vwap": vwap, "contract": contract}))
+    return vwap
 
 
 def tx_front_by_day(rows: list[dict]) -> dict[date, dict]:
@@ -933,6 +1027,8 @@ def slim_row(r: dict) -> dict:
     o = {k: r[k] for k in keep if k in r}
     if r.get("contract"):
         o["contract"] = r["contract"]
+    if r.get("middle_pending"):
+        o["middle_pending"] = True
     return o
 
 
@@ -946,6 +1042,7 @@ def build_payload(asof: date, stocks: list[dict], indices: list[dict], ver: dict
             "TPEX": "dailyQuotes (official shares and TWD; legacy fallback converts 張/千元)",
             "TAIEX": "TWSE MI_5MINS_HIST",
             "TX": "TAIFEX futDataDown, day session, front month by volume",
+            "TXF": "TAIFEX futDataDown day+night rows of the nearest non-expiring month; middle uses full-session VWAP from TAIFEX daily tick file",
             "OTC": "TPEx indexInfo/inx monthly OHLC (official open/high/low/close)",
         },
         "counts": {
@@ -1084,6 +1181,29 @@ def main(argv=None) -> int:
         indices.append(rec)
     else:
         log("WARN: TX missing as-of bar")
+    # TX full session (night + day), contract month = nearest not expiring today
+    tx_all = []
+    for y, m in sorted(months):
+        tx_all.extend(fetch_tx_month(y, m, use_cache=True, sessions=("一般", "盤後")))
+    fc = tx_full_contract(asof)
+    txf_hist = [b for b in tx_full_bars(tx_all, fc) if start <= b["date"] <= asof]
+    txf_last = next((b for b in txf_hist if b["date"] == asof), None)
+    if txf_last and txf_last["has_night"]:
+        vwap = fetch_tx_full_vwap(asof, fc, use_cache=use_cache)
+        rec = compute_one(txf_last, txf_hist, asof, use_vwap=False)
+        if vwap is not None:
+            rec["middle"] = middle_value(txf_last["high"], txf_last["low"], txf_last["close"],
+                                         Decimal(str(vwap)), Decimal(1), True)
+            rec["pos"] = pos_flag(rec["close"], rec["upper"], rec["middle"], rec["lower"])
+            rec["pos_label"] = POS_LABEL[rec["pos"]]
+        else:
+            rec["middle_pending"] = True
+        rec["name"] = f"台指期全盤（{fc}）"
+        rec["contract"] = fc
+        indices.append(rec)
+    else:
+        log("WARN: TX full-session bar missing")
+
     otc_hist = [r for r in otc_rows if start <= r["date"] <= asof]
     otc_last = next((r for r in reversed(otc_hist) if r["date"] == asof), None)
     if otc_last:
