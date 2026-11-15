@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2422">
+  <meta name="description" content="依證交所、櫃買中心、期交所公開行情計算的上軌、中軌、下軌、週守、月守點位。收盤後更新，僅供個人參考。">
+  <title>神秘指標 點位速查</title>
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --bg-elev: #fffcf6;
+      --ink: #1c2422;
+      --muted: #5c6663;
+      --line: #ddd6c8;
+      --accent: #1f5f54;
+      --accent-soft: #e4efe9;
+      --atu: #157347;
+      --atu-bg: #e5f6ec;
+      --btu: #1b5f8a;
+      --btu-bg: #e4f1f8;
+      --btd: #9a6b12;
+      --btd-bg: #f8efd8;
+      --dtd: #b42318;
+      --dtd-bg: #fde8e6;
+      --danger: #b42318;
+      --ok: #157347;
+      --shadow: 0 1px 2px rgba(28,36,34,.05), 0 8px 24px rgba(28,36,34,.06);
+      --radius: 14px;
+      --font: "Source Han Sans TC", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121614;
+        --bg-elev: #1c221f;
+        --ink: #eef3ef;
+        --muted: #9aa59f;
+        --line: #2c352f;
+        --accent: #8fd0c1;
+        --accent-soft: #1e332e;
+        --atu: #6ee7a8;
+        --atu-bg: #153325;
+        --btu: #7ec8f0;
+        --btu-bg: #163040;
+        --btd: #f0c36e;
+        --btd-bg: #3a2d12;
+        --dtd: #f0a09a;
+        --dtd-bg: #3a1b18;
+        --danger: #f0a09a;
+        --ok: #6ee7a8;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
+    }
+    .wrap {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 20px 16px 64px;
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+    header.hero { margin-bottom: 22px; }
+    header.hero h1 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+      margin: 0 0 8px;
+    }
+    .meta, .lede, p, li { color: var(--ink); }
+    .meta { color: var(--muted); font-size: .95rem; margin: 0 0 8px; }
+    .lede { margin: 0; max-width: 46rem; }
+    h2 {
+      font-size: 1.12rem;
+      margin: 0 0 10px;
+      font-weight: 700;
+    }
+    section.block {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 16px 14px;
+      margin: 16px 0;
+      box-shadow: var(--shadow);
+    }
+    section.block p { margin: 0 0 10px; }
+    section.block p:last-child { margin-bottom: 0; }
+    .note { color: var(--muted); font-size: .92rem; margin: 8px 0 16px; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin: 14px 0 8px;
+    }
+    @media (min-width: 720px) {
+      .cards { grid-template-columns: 1fr 1fr; }
+    }
+    .card {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px 16px 12px;
+      box-shadow: var(--shadow);
+    }
+    .card-head, .row-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .card-title { font-weight: 700; font-size: 1.05rem; }
+    .card-close { color: var(--muted); font-size: .92rem; margin: 6px 0 10px; }
+    .levels {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px 6px;
+    }
+    .lv label {
+      display: block;
+      color: var(--muted);
+      font-size: .72rem;
+      letter-spacing: .02em;
+    }
+    .lv b { font-weight: 650; font-variant-numeric: tabular-nums; font-size: .92rem; }
+    @media (max-width: 420px) {
+      .levels { grid-template-columns: repeat(3, 1fr); }
+      .lv:nth-child(4), .lv:nth-child(5) { }
+    }
+    .pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 9px;
+      font-size: .78rem;
+      font-weight: 650;
+      line-height: 1.5;
+      white-space: nowrap;
+    }
+    .pill.au { color: var(--atu); background: var(--atu-bg); }
+    .pill.bu { color: var(--btu); background: var(--btu-bg); }
+    .pill.bl { color: var(--btd); background: var(--btd-bg); }
+    .pill.dl { color: var(--dtd); background: var(--dtd-bg); }
+    .pill.ok { color: var(--ok); background: var(--atu-bg); }
+    .pill.no { color: var(--danger); background: var(--dtd-bg); }
+    .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+      backdrop-filter: blur(10px);
+      margin: 0 -16px;
+      padding: 10px 16px 12px;
+      border-bottom: 1px solid transparent;
+    }
+    .toolbar.stuck { border-bottom-color: var(--line); }
+    .search {
+      width: 100%;
+      font: inherit;
+      font-size: 16px;
+      padding: 11px 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--bg-elev);
+      color: var(--ink);
+      margin-bottom: 10px;
+    }
+    .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .chips, .sorts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .chips { margin-bottom: 8px; }
+    button.chip, button.sortbtn, button.pagebtn {
+      font: inherit;
+      font-size: .9rem;
+      border: 1px solid var(--line);
+      background: var(--bg-elev);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 8px 12px;
+      min-height: 40px;
+      cursor: pointer;
+    }
+    button.chip[aria-pressed="true"] {
+      background: var(--accent);
+      color: #f7fffc;
+      border-color: var(--accent);
+    }
+    @media (prefers-color-scheme: dark) {
+      button.chip[aria-pressed="true"] { color: #10211c; }
+    }
+    button.chip:focus-visible, button.sortbtn:focus-visible, button.pagebtn:focus-visible, .search:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+    .sorts { color: var(--muted); font-size: .9rem; margin-bottom: 4px; }
+    select.sort {
+      font: inherit;
+      font-size: .95rem;
+      border: 1px solid var(--line);
+      background: var(--bg-elev);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 8px 10px;
+      min-height: 40px;
+    }
+    .hint { color: var(--muted); font-size: .92rem; margin: 4px 0 12px; }
+    .empty { padding: 24px 8px; color: var(--muted); }
+    .list { display: flex; flex-direction: column; gap: 10px; }
+    .stock {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .code { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; margin-right: 6px; }
+    .pager {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 16px;
+      color: var(--muted);
+    }
+    button.pagebtn:disabled { opacity: .45; cursor: not-allowed; }
+    table.desk {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      display: none;
+    }
+    table.desk th, table.desk td {
+      text-align: right;
+      padding: 8px 8px;
+      border-bottom: 1px solid var(--line);
+      white-space: nowrap;
+    }
+    table.desk th:nth-child(1), table.desk td:nth-child(1),
+    table.desk th:nth-child(2), table.desk td:nth-child(2),
+    table.desk th:nth-child(9), table.desk td:nth-child(9),
+    table.desk th:nth-child(10), table.desk td:nth-child(10),
+    table.desk th:nth-child(11), table.desk td:nth-child(11) { text-align: left; }
+    table.desk th {
+      font-weight: 650;
+      font-size: .8rem;
+      color: var(--muted);
+      position: sticky;
+      top: 118px;
+      background: var(--bg);
+    }
+    table.desk th.sortable { cursor: pointer; }
+    .mob { display: block; }
+    @media (min-width: 900px) {
+      .mob { display: none; }
+      table.desk { display: table; }
+      .stock { display: none; }
+    }
+    .formulas p { font-size: .95rem; }
+    .callout {
+      margin-top: 22px;
+      border-left: 3px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 0 12px 12px 0;
+      padding: 12px 14px;
+      font-weight: 650;
+    }
+    footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: .85rem;
+    }
+    footer a { color: var(--accent); }
+    .err {
+      background: var(--dtd-bg);
+      color: var(--dtd);
+      padding: 14px;
+      border-radius: 12px;
+    }
+    .loading { color: var(--muted); padding: 28px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1>神秘指標 點位速查</h1>
+      <p class="meta" id="meta">讀取資料中…</p>
+      <p class="lede">點位用前一交易日的完整日 K 算出，當天開盤前就固定，盤中不必重算。本表用資料日收盤對照這組點位；同一組點位也可當隔天的參考價。</p>
+    </header>
+
+    <section class="block" id="legend">
+      <h2>站上、跌破代表什麼</h2>
+      <p><strong>原始規則</strong>（摘自公開評分條件）：偏多評分看「收盤大於或等於昨天、前天的上軌、中軌、下軌」，以及是否「站上週守、上週守、本月守、上月守」，各計分。偏空評分看「收盤小於昨天、前天的上軌、中軌、下軌」，以及是否「跌破本週守、上週守、本月守、上月守」，各計分。原始規則也曾用「要扭轉短空，本週必須守住週守」這類說法，把週守當作當週扭轉空方的關鍵線。本頁列出的是本週守與本月守；上週守、上月守未顯示。</p>
+      <p><strong>一般解讀</strong>（非原始規則原文，僅供對照）：上軌可看作短線偏強區或壓力，收盤站上上軌代表短線偏強；中軌可看作多空分界；下軌可看作支撐或弱勢區，收盤跌破下軌代表短線偏弱。介於中軌–上軌、介於下軌–中軌是中間地帶。站上週守、月守代表收盤守在該週、該月守價之上；跌破則相反。以上皆非投資建議。</p>
+    </section>
+
+    <div id="idx" class="cards"></div>
+    <p class="note" id="idx-note" hidden></p>
+
+    <section id="stocks-sec">
+      <h2>個股點位</h2>
+      <p class="hint">以代號或名稱搜尋，欄位可排序。每列「位置」為收盤相對上軌／中軌／下軌；週守、月守另以站上或跌破標示。篩選可看收盤站上上軌、跌破下軌，或同時站上週守與月守。</p>
+      <div class="toolbar" id="toolbar">
+        <input class="search" id="q" type="search" placeholder="輸入代號或名稱，例如 2330、台積電" autocomplete="off" enterkeyhint="search">
+        <div class="chips" id="chips"></div>
+        <div class="sorts">
+          <label for="sort">排序</label>
+          <select class="sort" id="sort">
+            <option value="symbol">代號</option>
+            <option value="close">收盤</option>
+            <option value="upper">上軌</option>
+            <option value="middle">中軌</option>
+            <option value="lower">下軌</option>
+            <option value="week_line">週守</option>
+            <option value="month_line">月守</option>
+            <option value="pos">位置</option>
+          </select>
+          <button type="button" class="sortbtn" id="ascbtn" aria-pressed="true">升冪</button>
+        </div>
+      </div>
+      <div id="list" class="list mob"></div>
+      <div id="table-wrap"></div>
+      <div class="pager" id="pager"></div>
+    </section>
+
+    <section class="block formulas">
+      <h2>公式說明</h2>
+      <p>H、L、C 為當日最高、最低、收盤。</p>
+      <p>中心 = (9H + 9L + 10C) / 28；上軌 = 中心 + (221/274)(H − L)；下軌 = 中心 − (221/274)(H − L)</p>
+      <p>Q = (13H + 13L + 10C) / 36；個股中軌 = (Q + 當日均價) / 2，均價 = 成交金額 ÷ 成交股數；指數與台指期中軌 = Q</p>
+      <p>週守、月守 = (37HH + 37LL + 10C) / 84，HH、LL 為本週（週一起）或本月迄今的最高、最低，C 為最新收盤。</p>
+      <p>位置：收盤 ≥ 上軌為站上上軌；中軌 ≤ 收盤 ＜ 上軌為介於中軌–上軌；下軌 ＜ 收盤 ＜ 中軌為介於下軌–中軌；收盤 ≤ 下軌為跌破下軌。全部四捨五入到小數兩位。</p>
+      <p>資料來源：證交所每日收盤行情、櫃買中心每日收盤行情與櫃買指數月查詢（含開高低收）、證交所加權指數歷史、期交所台指期日盤。依公開歷史行情獨立計算，僅供個人參考。</p>
+    </section>
+
+    <div class="callout">依公開歷史行情計算，僅供個人參考，非投資建議</div>
+    <footer>本站由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。</footer>
+  </div>
+  <script>
+  const PAGE = 50;
+  const POS_LABEL = { au: "站上 上軌", bu: "介於 中軌–上軌", bl: "介於 下軌–中軌", dl: "跌破 下軌" };
+  const fmt = (v) => Number(v).toLocaleString("zh-TW", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const $ = (id) => document.getElementById(id);
+
+  let ROWS = [];
+  let IDX = [];
+  let q = "";
+  let flt = "all";
+  let sortKey = "symbol";
+  let asc = true;
+  let page = 0;
+
+  function pillPos(pos) {
+    return `<span class="pill ${pos}">${POS_LABEL[pos] || pos}</span>`;
+  }
+  function pillGuard(on, kind) {
+    return on
+      ? `<span class="pill ok">站上${kind}</span>`
+      : `<span class="pill no">跌破${kind}</span>`;
+  }
+  function levels(r) {
+    const cells = [
+      ["上軌", r.upper], ["中軌", r.middle], ["下軌", r.lower], ["週守", r.week_line], ["月守", r.month_line],
+    ];
+    return `<div class="levels">${cells.map(([k,v]) => `<div class="lv"><label>${k}</label><b>${fmt(v)}</b></div>`).join("")}</div>`;
+  }
+  function card(r) {
+    return `<article class="card">
+      <div class="card-head">
+        <div class="card-title">${escapeHtml(r.name)}</div>
+        ${pillPos(r.pos)}
+      </div>
+      <div class="pills">${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}</div>
+      <div class="card-close">收盤 ${fmt(r.close)}</div>
+      ${levels(r)}
+    </article>`;
+  }
+  function stockCard(r) {
+    return `<article class="stock">
+      <div class="row-head">
+        <div><span class="code">${escapeHtml(r.symbol)}</span><strong>${escapeHtml(r.name)}</strong></div>
+        ${pillPos(r.pos)}
+      </div>
+      <div class="pills" style="margin-bottom:8px">${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}</div>
+      <div class="card-close" style="margin:0 0 8px">收盤 ${fmt(r.close)}</div>
+      ${levels(r)}
+    </article>`;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+
+  function filtered() {
+    const kw = q.trim().toLowerCase();
+    let xs = ROWS.filter((r) => !kw || String(r.symbol).toLowerCase().includes(kw) || String(r.name).toLowerCase().includes(kw));
+    if (flt === "au") xs = xs.filter((r) => r.pos === "au");
+    if (flt === "dl") xs = xs.filter((r) => r.pos === "dl");
+    if (flt === "wm") xs = xs.filter((r) => r.above_week && r.above_month);
+    const k = sortKey;
+    xs = [...xs].sort((a, b) => {
+      let d;
+      if (k === "symbol") d = String(a.symbol).localeCompare(String(b.symbol), "zh-Hant");
+      else if (k === "pos") d = ({ au:0, bu:1, bl:2, dl:3 }[a.pos] ?? 9) - ({ au:0, bu:1, bl:2, dl:3 }[b.pos] ?? 9);
+      else d = (Number(a[k]) || 0) - (Number(b[k]) || 0);
+      return asc ? d : -d;
+    });
+    return xs;
+  }
+
+  function render() {
+    const list = filtered();
+    const pages = Math.max(1, Math.ceil(list.length / PAGE));
+    if (page > pages - 1) page = pages - 1;
+    if (page < 0) page = 0;
+    const shown = list.slice(page * PAGE, page * PAGE + PAGE);
+    const cnt = (f) => ROWS.filter(f).length;
+    const filters = [
+      ["all", "全部", ROWS.length],
+      ["au", "收盤站上 上軌", cnt((r) => r.pos === "au")],
+      ["dl", "跌破 下軌", cnt((r) => r.pos === "dl")],
+      ["wm", "站上週守與月守", cnt((r) => r.above_week && r.above_month)],
+    ];
+    $("chips").innerHTML = filters.map(([k, label, n]) =>
+      `<button type="button" class="chip" data-flt="${k}" aria-pressed="${flt===k}">${label}（${n}）</button>`
+    ).join("");
+    $("ascbtn").textContent = asc ? "升冪" : "降冪";
+    $("ascbtn").setAttribute("aria-pressed", String(asc));
+
+    if (shown.length === 0) {
+      $("list").innerHTML = `<div class="empty">沒有符合條件的股票，試試清除搜尋或改篩選。</div>`;
+      $("table-wrap").innerHTML = "";
+    } else {
+      $("list").innerHTML = shown.map(stockCard).join("");
+      $("table-wrap").innerHTML = `<table class="desk">
+        <thead><tr>
+          <th>代號</th><th>名稱</th><th>收盤</th><th>上軌</th><th>中軌</th><th>下軌</th>
+          <th>週守</th><th>月守</th><th>位置</th><th>週守</th><th>月守</th>
+        </tr></thead>
+        <tbody>${shown.map((r) => `<tr>
+          <td>${escapeHtml(r.symbol)}</td>
+          <td>${escapeHtml(r.name)}</td>
+          <td>${fmt(r.close)}</td>
+          <td>${fmt(r.upper)}</td>
+          <td>${fmt(r.middle)}</td>
+          <td>${fmt(r.lower)}</td>
+          <td>${fmt(r.week_line)}</td>
+          <td>${fmt(r.month_line)}</td>
+          <td>${pillPos(r.pos)}</td>
+          <td>${pillGuard(r.above_week, "週守")}</td>
+          <td>${pillGuard(r.above_month, "月守")}</td>
+        </tr>`).join("")}</tbody>
+      </table>`;
+    }
+    $("pager").innerHTML = `
+      <button type="button" class="pagebtn" id="prev" ${page<=0?"disabled":""}>上一頁</button>
+      <span>第 ${page+1} / ${pages} 頁，共 ${list.length} 檔</span>
+      <button type="button" class="pagebtn" id="next" ${page>=pages-1?"disabled":""}>下一頁</button>`;
+    $("chips").onclick = (e) => {
+      const b = e.target.closest("button[data-flt]");
+      if (!b) return;
+      flt = b.dataset.flt;
+      page = 0;
+      render();
+    };
+    const prev = $("prev"), next = $("next");
+    if (prev) prev.onclick = () => { if (page>0) { page--; render(); window.scrollTo({top: $("stocks-sec").offsetTop-8, behavior:"smooth"}); } };
+    if (next) next.onclick = () => { page++; render(); window.scrollTo({top: $("stocks-sec").offsetTop-8, behavior:"smooth"}); };
+  }
+
+  function taipeiLabel(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    if (isNaN(d)) return isoStr;
+    const f = new Intl.DateTimeFormat("zh-TW", {
+      timeZone: "Asia/Taipei", year:"numeric", month:"2-digit", day:"2-digit",
+      hour:"2-digit", minute:"2-digit", hour12: false
+    }).format(d);
+    return f + "（台北時間）";
+  }
+
+  fetch("data/latest.json", { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then((data) => {
+      ROWS = data.stocks || [];
+      IDX = data.indices || [];
+      const n = (data.counts && data.counts.stocks) || ROWS.length;
+      const ver = data.verification || {};
+      let vtxt = "";
+      if (ver.passed && ver.checked) vtxt = ` · 驗證：${ver.passed}/${ver.checked} 個樣本五個點位 0 誤差`;
+      $("meta").textContent = `資料日期 ${data.date}（台北時間收盤）· 全市場 ${n} 檔${vtxt}`;
+      if (data.generated_at) {
+        $("meta").textContent += ` · 計算於 ${taipeiLabel(data.generated_at)}`;
+      }
+      $("idx").innerHTML = IDX.map(card).join("");
+      const note = $("idx-note");
+      note.hidden = false;
+      note.textContent = "台指期用日盤近月合約。櫃買指數取自櫃買中心公開的每月開高低收。";
+      render();
+    })
+    .catch((err) => {
+      $("meta").innerHTML = `<div class="err">資料讀取失敗：${escapeHtml(err.message)}。請稍後再試。</div>`;
+    });
+
+  $("q").addEventListener("input", (e) => { q = e.target.value; page = 0; render(); });
+  $("sort").addEventListener("change", (e) => { sortKey = e.target.value; page = 0; render(); });
+  $("ascbtn").addEventListener("click", () => { asc = !asc; render(); });
+  </script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+name: Update and deploy
+
+on:
+  schedule:
+    # Weekdays, after the Taiwan cash-market close (13:30 Taipei).
+    - cron: "10 7 * * 1-5"    # 15:10 台北時間
+    - cron: "30 9 * * 1-5"    # 17:30 台北時間（資料若延遲則重試）
+    - cron: "0 12 * * 1-5"    # 20:00 台北時間（再補一次）
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        if: github.event_name != 'push'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compute levels
+        if: github.event_name != 'push'
+        run: python3 scripts/compute_all.py --out data/latest.json
+
+      - name: Commit data if changed
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/latest.json
+          if git diff --staged --quiet; then
+            echo "No data change (holiday, late publish, or already up to date)"
+          else
+            DATE=$(python3 -c "import json; print(json.load(open('data/latest.json'))['date'])")
+            git commit -m "chore: update levels for ${DATE}"
+            git push
+          fi
+
+      - name: Stage site
+        run: |
+          mkdir -p _site/data
+          cp index.html _site/
+          cp data/latest.json _site/data/
+          touch _site/.nojekyll
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

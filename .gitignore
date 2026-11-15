@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.Python
+cache/
+_site/
+.DS_Store
+*.bin
