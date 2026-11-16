@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#1c2422">
   <meta name="description" content="依證交所、櫃買中心、期交所公開行情計算的上軌、中軌、下軌、週守、月守點位。收盤後更新，僅供個人參考。">
   <title>神秘指標 點位速查</title>
+  <link rel="icon" href="data:,">
   <style>
     :root {
       --bg: #f4f1ea;
@@ -284,6 +285,60 @@
       border-radius: 12px;
     }
     .loading { color: var(--muted); padding: 28px 0; }
+    .card, .stock { cursor: pointer; }
+    table.desk tbody tr { cursor: pointer; }
+    table.desk tbody tr:hover td { background: var(--accent-soft); }
+    .chartbtn {
+      font: inherit; font-size: .85rem; font-weight: 650;
+      margin-top: 10px; padding: 6px 12px; min-height: 36px;
+      border-radius: 999px; border: 1px solid var(--accent);
+      background: transparent; color: var(--accent); cursor: pointer;
+    }
+    .sheet[hidden] { display: none; }
+    .sheet {
+      position: fixed; inset: 0; z-index: 50;
+      background: rgba(10,14,12,.45);
+      display: flex; align-items: stretch; justify-content: center;
+    }
+    .sheet-in {
+      background: var(--bg-elev); color: var(--ink);
+      width: 100%; max-width: 1000px; height: 100%;
+      display: flex; flex-direction: column;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    @media (min-width: 900px) {
+      .sheet { align-items: center; padding: 24px; }
+      .sheet-in { height: auto; max-height: 100%; border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px; }
+    }
+    .sh-head { display: flex; align-items: center; gap: 8px; }
+    .sh-title { font-weight: 700; font-size: 1.08rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sh-close {
+      font: inherit; font-size: 1.3rem; line-height: 1; width: 40px; height: 40px;
+      border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer;
+    }
+    .trend { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 6px; }
+    .tbadge { font-weight: 800; font-size: .95rem; padding: 3px 12px; border-radius: 999px; }
+    .tbadge.bull { color: #fff; background: #d9363e; }
+    .tbadge.bear { color: #fff; background: #13894f; }
+    .tbadge.flat { color: var(--ink); background: var(--line); }
+    .tnote { color: var(--muted); font-size: .8rem; }
+    .readout { font-size: .78rem; font-variant-numeric: tabular-nums; color: var(--muted); min-height: 2.6em; line-height: 1.35; }
+    .readout b { color: var(--ink); font-weight: 650; }
+    .readout .up { color: #d9363e; } .readout .dn { color: #13894f; }
+    #chart { position: relative; width: 100%; height: min(58vh, 520px); min-height: 300px; margin-top: 4px; touch-action: none; }
+    .tg { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+    .tg button {
+      font: inherit; font-size: .8rem; padding: 4px 10px; min-height: 32px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--bg); color: var(--muted); cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .tg button i { display: inline-block; width: 14px; height: 0; border-top: 2px solid currentColor; }
+    .tg button[aria-pressed="true"] { color: var(--ink); border-color: var(--ink); background: var(--bg-elev); font-weight: 650; }
+    .tg .sep { width: 1px; background: var(--line); margin: 2px 2px; }
+    .sh-foot { color: var(--muted); font-size: .74rem; margin-top: 8px; line-height: 1.45; }
+    .sh-foot a { color: var(--accent); }
+    .sh-msg { padding: 30px 6px; color: var(--muted); }
   </style>
 </head>
 <body>
@@ -305,7 +360,7 @@
 
     <section id="stocks-sec">
       <h2>個股點位</h2>
-      <p class="hint">以代號或名稱搜尋，欄位可排序。每列「位置」為收盤相對上軌／中軌／下軌；週守、月守另以站上或跌破標示。篩選可看收盤站上上軌、跌破下軌，或同時站上週守與月守。</p>
+      <p class="hint">以代號或名稱搜尋，欄位可排序。點任一檔（或上方指數卡片）可打開日線圖看趨勢。每列「位置」為收盤相對上軌／中軌／下軌；週守、月守另以站上或跌破標示。篩選可看收盤站上上軌、跌破下軌，或同時站上週守與月守。</p>
       <div class="toolbar" id="toolbar">
         <input class="search" id="q" type="search" placeholder="輸入代號或名稱，例如 2330、台積電" autocomplete="off" enterkeyhint="search">
         <div class="chips" id="chips"></div>
@@ -341,7 +396,21 @@
     </section>
 
     <div class="callout">依公開歷史行情計算，僅供個人參考，非投資建議</div>
-    <footer>本站由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。</footer>
+    <footer>本站由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。日線圖使用 <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0）。</footer>
+  </div>
+  <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sh-title">
+    <div class="sheet-in">
+      <div class="sh-head">
+        <div class="sh-title" id="sh-title"></div>
+        <button type="button" class="sh-close" id="sh-close" aria-label="關閉">×</button>
+      </div>
+      <div class="trend" id="trend"></div>
+      <div class="readout" id="readout"></div>
+      <div id="chart"></div>
+      <div class="tg" id="ranges"></div>
+      <div class="tg" id="toggles"></div>
+      <div class="sh-foot" id="sh-foot"></div>
+    </div>
   </div>
   <script>
   const PAGE = 50;
@@ -372,7 +441,7 @@
     return `<div class="levels">${cells.map(([k,v]) => `<div class="lv"><label>${k}</label><b>${fmt(v)}</b></div>`).join("")}</div>`;
   }
   function card(r) {
-    return `<article class="card">
+    return `<article class="card" data-sym="${escapeHtml(r.symbol)}">
       <div class="card-head">
         <div class="card-title">${escapeHtml(r.name)}</div>
         ${pillPos(r.pos)}
@@ -381,10 +450,11 @@
       <div class="card-close">收盤 ${fmt(r.close)}</div>
       ${levels(r)}
       ${r.middle_pending ? `<div class="note">中軌暫以 Q 估算，期交所逐筆資料約 16:45（台北時間）公布後會自動更新。</div>` : ""}
+      <button type="button" class="chartbtn">看日線圖 ›</button>
     </article>`;
   }
   function stockCard(r) {
-    return `<article class="stock">
+    return `<article class="stock" data-sym="${escapeHtml(r.symbol)}">
       <div class="row-head">
         <div><span class="code">${escapeHtml(r.symbol)}</span><strong>${escapeHtml(r.name)}</strong></div>
         ${pillPos(r.pos)}
@@ -392,6 +462,7 @@
       <div class="pills" style="margin-bottom:8px">${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}</div>
       <div class="card-close" style="margin:0 0 8px">收盤 ${fmt(r.close)}</div>
       ${levels(r)}
+      <button type="button" class="chartbtn">看日線圖 ›</button>
     </article>`;
   }
   function escapeHtml(s) {
@@ -444,7 +515,7 @@
           <th>代號</th><th>名稱</th><th>收盤</th><th>上軌</th><th>中軌</th><th>下軌</th>
           <th>週守</th><th>月守</th><th>位置</th><th>週守</th><th>月守</th>
         </tr></thead>
-        <tbody>${shown.map((r) => `<tr>
+        <tbody>${shown.map((r) => `<tr data-sym="${escapeHtml(r.symbol)}" title="點一下看日線圖">
           <td>${escapeHtml(r.symbol)}</td>
           <td>${escapeHtml(r.name)}</td>
           <td>${fmt(r.close)}</td>
@@ -504,10 +575,274 @@
       note.hidden = false;
       note.textContent = "台指期近月只用日盤；台指期全盤用夜盤加日盤（夜盤為前一交易日 15:00 起），合約為當天不結算的最近月，結算日當天改用次月。櫃買指數取自櫃買中心公開的每月開高低收。";
       render();
+      const m = location.hash.match(/^#chart=(.+)$/);
+      if (m) openChart(decodeURIComponent(m[1]), false);
     })
     .catch((err) => {
       $("meta").innerHTML = `<div class="err">資料讀取失敗：${escapeHtml(err.message)}。請稍後再試。</div>`;
     });
+
+  // ---------------- 日線圖 ----------------
+  const LWC_SRC = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js";
+  const UP = "#d9363e", DN = "#13894f";
+  const LINES = [
+    { k: "u", label: "上軌", color: "rgba(224,123,57,.85)", style: 0 },
+    { k: "m", label: "中軌", color: "#d9363e", style: 0, width: 2, dir: true },
+    { k: "d", label: "下軌", color: "rgba(47,127,214,.85)", style: 0 },
+    { k: "w", label: "週守", color: "#9b59d0", style: 2 },
+    { k: "mo", label: "月守", color: "#0f8b8d", style: 1 },
+  ];
+  const MAS = [
+    { n: 5, label: "MA5", color: "#c9a227" },
+    { n: 20, label: "MA20", color: "#7b8794" },
+    { n: 60, label: "MA60", color: "#8a5a44" },
+  ];
+  const RANGES = [["1月", 22], ["3月", 66], ["6月", 128], ["全部", 0]];
+  let lwcLoading = null, chart = null, CH = null, chartSym = null, chartRO = null;
+  let vis = Object.assign({ u: true, m: true, d: true, w: false, mo: true, MA5: false, MA20: true, MA60: false },
+    JSON.parse(localStorage.getItem("ml_vis") || "{}"));
+  let rangeBars = Number(localStorage.getItem("ml_range")) || (window.innerWidth < 640 ? 66 : 128);
+
+  function loadLwc() {
+    if (window.LightweightCharts) return Promise.resolve();
+    if (!lwcLoading) lwcLoading = new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = LWC_SRC; s.onload = res; s.onerror = () => rej(new Error("圖表元件載入失敗"));
+      document.head.appendChild(s);
+    });
+    return lwcLoading;
+  }
+  function nextWeekday(iso) {
+    const d = new Date(iso + "T00:00:00Z");
+    do { d.setUTCDate(d.getUTCDate() + 1); } while (d.getUTCDay() === 0 || d.getUTCDay() === 6);
+    return d.toISOString().slice(0, 10);
+  }
+  function rowBySym(sym) {
+    return IDX.find((r) => r.symbol === sym) || ROWS.find((r) => r.symbol === sym);
+  }
+  function fileOf(sym) { return String(sym).replace(/[^0-9A-Za-z]/g, ""); }
+  const f2 = (v) => v == null ? "—" : fmt(v);
+  const isDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+  function openChart(sym, push) {
+    const r = rowBySym(sym);
+    if (!r) return;
+    chartSym = sym;
+    if (push !== false && location.hash !== "#chart=" + encodeURIComponent(sym)) {
+      history.pushState({ chart: sym }, "", "#chart=" + encodeURIComponent(sym));
+    }
+    $("sheet").hidden = false;
+    document.body.style.overflow = "hidden";
+    $("sh-title").innerHTML = `${r.market === "TWSE" || r.market === "TPEX" ? `<span class="code">${escapeHtml(r.symbol)}</span>` : ""}${escapeHtml(r.name)} <span class="code">日線</span>`;
+    $("trend").innerHTML = "";
+    $("readout").textContent = "";
+    $("chart").innerHTML = `<div class="sh-msg">讀取日線資料中…</div>`;
+    Promise.all([loadLwc(), fetch(`data/hist/${fileOf(sym)}.json`, { cache: "no-cache" }).then((x) => {
+      if (!x.ok) throw new Error(x.status === 404 ? "這檔暫時沒有歷史資料" : "HTTP " + x.status);
+      return x.json();
+    })]).then(([, h]) => { if (chartSym === sym) drawChart(r, h); })
+      .catch((e) => { if (chartSym === sym) $("chart").innerHTML = `<div class="sh-msg">日線圖讀取失敗：${escapeHtml(e.message)}</div>`; });
+  }
+  function closeChart(fromPop) {
+    $("sheet").hidden = true;
+    document.body.style.overflow = "";
+    chartSym = null;
+    if (chartRO) { chartRO.disconnect(); chartRO = null; }
+    if (chart) { chart.remove(); chart = null; }
+    if (!fromPop && location.hash.startsWith("#chart=")) history.back();
+  }
+
+  function sma(c, n) {
+    const out = []; let s = 0;
+    for (let i = 0; i < c.length; i++) {
+      s += c[i]; if (i >= n) s -= c[i - n];
+      if (i >= n - 1) out.push(Math.round((s / n) * 100) / 100); else out.push(null);
+    }
+    return out;
+  }
+
+  function trendInfo(r, h) {
+    const n = h.t.length, c = h.c[n - 1];
+    // level row valid today = computed from previous session
+    const mToday = n >= 2 ? h.m[n - 2] : h.m[n - 1];
+    const mNext = h.m[n - 1];
+    const back = Math.max(0, n - 6);
+    const slope = h.m[back] ? (mNext - h.m[back]) / h.m[back] * 100 : 0;
+    let streak = 0;
+    const above = c >= mToday;
+    for (let i = n - 1; i >= 1; i--) {
+      if ((h.c[i] >= h.m[i - 1]) === above) streak++; else break;
+    }
+    let cls = "flat", label = "盤整";
+    if (above && slope > 0) { cls = "bull"; label = "多頭"; }
+    else if (!above && slope < 0) { cls = "bear"; label = "空頭"; }
+    else if (above) label = "盤整偏多";
+    else label = "盤整偏空";
+    const days = n - 1 - back;
+    return { cls, label, slope, above, streak, days };
+  }
+
+  function drawChart(r, h) {
+    const L = window.LightweightCharts;
+    const n = h.t.length;
+    if (!n) { $("chart").innerHTML = `<div class="sh-msg">沒有歷史資料</div>`; return; }
+    const fut = nextWeekday(h.t[n - 1]);
+    const fut2 = nextWeekday(fut); // lets the last step show as a full-width segment
+    const ti = trendInfo(r, h);
+    const pend = h.p && h.p[n - 1];
+    $("trend").innerHTML = `
+      <span class="tbadge ${ti.cls}">${ti.label}</span>
+      ${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}
+      <span class="tnote">收盤${ti.above ? "在中軌之上" : "在中軌之下"}連 ${ti.streak} 日 · 中軌 ${ti.days} 日 ${ti.slope >= 0 ? "↑" : "↓"} ${Math.abs(ti.slope).toFixed(2)}%</span>`;
+
+    $("chart").innerHTML = "";
+    if (chart) { chart.remove(); chart = null; }
+    const dark = isDark();
+    const el = $("chart");
+    chart = L.createChart(el, {
+      width: el.clientWidth, height: el.clientHeight,
+      layout: { background: { type: "solid", color: dark ? "#1c221f" : "#fffcf6" }, textColor: dark ? "#c9d2cd" : "#3b4441", fontSize: 11, attributionLogo: true },
+      grid: { vertLines: { visible: false }, horzLines: { visible: false } },
+      rightPriceScale: { borderColor: dark ? "#2c352f" : "#ddd6c8" },
+      timeScale: { borderColor: dark ? "#2c352f" : "#ddd6c8", rightOffset: 1, barSpacing: 7, minBarSpacing: 2, fixLeftEdge: false,
+        tickMarkFormatter: (t) => { const s = typeof t === "string" ? t : `${t.year}-${String(t.month).padStart(2,"0")}-${String(t.day).padStart(2,"0")}`; const [, mm, dd] = s.split("-"); return `${Number(mm)}/${Number(dd)}`; } },
+      localization: { locale: "zh-TW", dateFormat: "yyyy-MM-dd", priceFormatter: (p) => fmt(p) },
+      crosshair: { mode: 0 },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
+      kineticScroll: { touch: true, mouse: false },
+    });
+    // light band between 上軌 and 下軌: tinted area under 上軌, masked below 下軌
+    const bgc = dark ? "#1c221f" : "#fffcf6";
+    const bandOpt = { lineType: 1, lineWidth: 1, lineColor: "rgba(0,0,0,0)", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+    const bandHi = chart.addAreaSeries(Object.assign({}, bandOpt, { topColor: dark ? "rgba(143,208,193,.10)" : "rgba(31,95,84,.07)", bottomColor: dark ? "rgba(143,208,193,.10)" : "rgba(31,95,84,.07)" }));
+    const bandLo = chart.addAreaSeries(Object.assign({}, bandOpt, { topColor: bgc, bottomColor: bgc }));
+    const candle = chart.addCandlestickSeries({
+      upColor: UP, downColor: DN, borderUpColor: UP, borderDownColor: DN, wickUpColor: UP, wickDownColor: DN,
+      priceLineVisible: false, lastValueVisible: true,
+    });
+    const cd = h.t.map((t, i) => ({ time: t, open: h.o[i], high: h.h[i], low: h.l[i], close: h.c[i] }));
+    cd.push({ time: fut }, { time: fut2 });
+    candle.setData(cd);
+    const hasVol = Array.isArray(h.v) && h.v.some((x) => x != null);
+    candle.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: hasVol ? 0.22 : 0.06 } });
+    let volS = null;
+    if (hasVol) {
+      volS = chart.addHistogramSeries({ priceScaleId: "vol", priceFormat: { type: "volume" }, lastValueVisible: false, priceLineVisible: false });
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
+      volS.setData(h.t.map((t, i) => ({ time: t, value: h.v[i] || 0,
+        color: (h.c[i] >= h.o[i] ? "rgba(217,54,62,.45)" : "rgba(19,137,79,.45)") })));
+    }
+    // level lines: row computed from session i is drawn on session i+1 (the session it applies to)
+    const S = {};
+    const valid = {};
+    for (const ln of LINES) {
+      const arr = h[ln.k];
+      const pts = [];
+      let prevColor = UP;
+      for (let i = 1; i <= n; i++) {
+        const v = arr[i - 1];
+        const t = i < n ? h.t[i] : fut;
+        if (v == null) { pts.push({ time: t }); continue; }
+        const p = { time: t, value: v };
+        if (ln.dir && i >= 2 && arr[i - 2] != null) {
+          if (v > arr[i - 2]) prevColor = UP; else if (v < arr[i - 2]) prevColor = DN;
+          p.color = prevColor;
+        } else if (ln.dir) p.color = prevColor;
+        pts.push(p);
+      }
+      const lastPt = pts[pts.length - 1];
+      pts.push(lastPt.value == null ? { time: fut2 } : Object.assign({}, lastPt, { time: fut2 }));
+      valid[ln.k] = pts;
+      S[ln.k] = chart.addLineSeries({ color: ln.color, lineWidth: ln.width || 1, lineType: 1, lineStyle: ln.style,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, visible: vis[ln.k] });
+      S[ln.k].setData(pts);
+    }
+    const bandPts = (k) => valid[k].map((p) => p.value == null ? { time: p.time } : { time: p.time, value: p.value });
+    bandHi.setData(bandPts("u")); bandLo.setData(bandPts("d"));
+    const syncBand = () => { const on = vis.u && vis.d; bandHi.applyOptions({ visible: on }); bandLo.applyOptions({ visible: on }); };
+    syncBand();
+    for (const ma of MAS) {
+      const arr = sma(h.c, ma.n);
+      const s = chart.addLineSeries({ color: ma.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false, visible: vis[ma.label] });
+      s.setData(h.t.map((t, i) => arr[i] == null ? { time: t } : { time: t, value: arr[i] }));
+      S[ma.label] = s;
+      valid[ma.label] = arr;
+    }
+    const idxOf = {}; h.t.forEach((t, i) => { idxOf[t] = i; });
+    function readout(t) {
+      const i = t === fut ? n : idxOf[t];
+      if (i == null) return;
+      const lv = LINES.map((ln) => {
+        const v = i >= 1 ? h[ln.k][i - 1] : null;
+        return `${ln.label} <b>${f2(v)}</b>`;
+      }).join(" · ");
+      if (i === n) {
+        $("readout").innerHTML = `<b>${fut}</b>（下一交易日適用，= 表格點位${pend ? "，中軌暫以 Q 估算" : ""}）<br>${lv}`;
+        return;
+      }
+      const ch = i > 0 ? h.c[i] - h.c[i - 1] : 0;
+      const pc = i > 0 && h.c[i - 1] ? ch / h.c[i - 1] * 100 : 0;
+      const cls = ch > 0 ? "up" : ch < 0 ? "dn" : "";
+      const vtxt = hasVol && h.v[i] != null ? ` 量 <b>${Number(h.v[i]).toLocaleString("zh-TW")}</b>${r.market === "FUT" ? "口" : "張"}` : "";
+      $("readout").innerHTML = `<b>${h.t[i]}</b> 開 <b>${f2(h.o[i])}</b> 高 <b>${f2(h.h[i])}</b> 低 <b>${f2(h.l[i])}</b> 收 <b class="${cls}">${f2(h.c[i])}</b> <span class="${cls}">${ch >= 0 ? "+" : ""}${fmt(ch)} (${pc >= 0 ? "+" : ""}${pc.toFixed(2)}%)</span>${vtxt}<br>${lv}`;
+    }
+    chart.subscribeCrosshairMove((p) => {
+      if (!p || !p.time) { readout(fut); return; }
+      if (p.time === fut2) { readout(fut); return; }
+      const t = typeof p.time === "string" ? p.time : `${p.time.year}-${String(p.time.month).padStart(2,"0")}-${String(p.time.day).padStart(2,"0")}`;
+      readout(t);
+    });
+    readout(fut);
+
+    function applyRange() {
+      const total = n + 2;
+      if (!rangeBars || rangeBars >= total) chart.timeScale().setVisibleLogicalRange({ from: -0.5, to: total + 0.5 });
+      else chart.timeScale().setVisibleLogicalRange({ from: total - rangeBars - 0.5, to: total + 0.5 });
+      $("ranges").querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.r) === rangeBars)));
+    }
+    $("ranges").innerHTML = `<span class="tnote" style="align-self:center">區間</span>` + RANGES.map(([lab, b]) =>
+      `<button type="button" data-r="${b}" aria-pressed="false">${lab}</button>`).join("");
+    $("ranges").onclick = (e) => {
+      const b = e.target.closest("button[data-r]"); if (!b) return;
+      rangeBars = Number(b.dataset.r); localStorage.setItem("ml_range", String(rangeBars)); applyRange();
+    };
+    applyRange();
+
+    const tgl = (k, label, color, style) => `<button type="button" data-k="${k}" aria-pressed="${!!vis[k]}"><i style="color:${color};border-top-style:${style === 2 ? "dashed" : style === 1 ? "dotted" : "solid"}"></i>${label}</button>`;
+    $("toggles").innerHTML = LINES.map((ln) => tgl(ln.k, ln.label, ln.dir ? UP : ln.color, ln.style)).join("") +
+      `<span class="sep"></span>` + MAS.map((m) => tgl(m.label, m.label, m.color, 0)).join("");
+    $("toggles").onclick = (e) => {
+      const b = e.target.closest("button[data-k]"); if (!b) return;
+      const k = b.dataset.k; vis[k] = !vis[k];
+      localStorage.setItem("ml_vis", JSON.stringify(vis));
+      b.setAttribute("aria-pressed", String(vis[k]));
+      S[k].applyOptions({ visible: vis[k] });
+      syncBand();
+    };
+    const first = h.t[0];
+    $("sh-foot").innerHTML = `K 線紅漲綠跌，雙指縮放、左右拖曳看更早。點位線為「前一交易日算出、當天適用」的階梯線，上軌與下軌之間淡色底為通道；中軌紅色代表比前一天上升、綠色代表下降。最右一格是下一交易日要用的點位，數值與表格相同。趨勢標籤：收盤在當天中軌之上且中軌近 5 日上升為多頭，在中軌之下且中軌下降為空頭，其餘為盤整。歷史自 ${first} 起共 ${n} 個交易日${r.symbol === "TXF" ? "；全盤中軌在期交所逐筆資料保存期間外的較早日期以 Q 代替" : ""}${r.symbol === "TX" ? "；近月合約換月時價格會跳動" : ""}。僅供參考，非投資建議。<br>圖表元件：<a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0），Copyright © TradingView, Inc.`;
+
+    if (chartRO) chartRO.disconnect();
+    chartRO = new ResizeObserver(() => { if (chart) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
+    chartRO.observe(el);
+  }
+
+  $("sh-close").addEventListener("click", () => closeChart(false));
+  $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") closeChart(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("sheet").hidden) closeChart(false); });
+  window.addEventListener("popstate", () => {
+    const m = location.hash.match(/^#chart=(.+)$/);
+    if (m) openChart(decodeURIComponent(m[1]), false); else if (!$("sheet").hidden) closeChart(true);
+  });
+  function bindOpen(id) {
+    $(id).addEventListener("click", (e) => {
+      const el = e.target.closest("[data-sym]");
+      if (el) openChart(el.dataset.sym);
+    });
+  }
+  bindOpen("idx"); bindOpen("list"); bindOpen("table-wrap");
 
   $("q").addEventListener("input", (e) => { q = e.target.value; page = 0; render(); });
   $("sort").addEventListener("change", (e) => { sortKey = e.target.value; page = 0; render(); });

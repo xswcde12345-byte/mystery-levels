@@ -45,6 +45,8 @@ SLEEP_SEC = 3.0
 K_BAND = Decimal(221) / Decimal(274)
 GOLDEN = ROOT / "data" / "levels_20261113.csv"
 DEFAULT_OUT = ROOT / "data" / "latest.json"
+DAYS_DIR = ROOT / "data" / "days"
+DAYS_KEEP = 260  # trading days of compact per-day rows kept in the repo (chart history)
 
 EXCLUDE_NAME = (
     "權證", "認購", "認售", "牛證", "熊證", "展延", "可轉債", "可交債",
@@ -874,6 +876,7 @@ def compute_one(last: dict, history: list[dict], asof: date, use_vwap: bool) -> 
         "above_week": c >= week_line,
         "above_month": c >= month_line,
         "amount": last.get("amount"),
+        "volume": last.get("volume"),
     }
 
 
@@ -1157,64 +1160,60 @@ def payload_equal(a: dict, b: dict) -> bool:
     return norm(a) == norm(b)
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Compute custom band levels for all TWSE/TPEX names.")
-    ap.add_argument("--date", help="As-of ISO date (default: latest trading day, Asia/Taipei)")
-    ap.add_argument("--no-cache", action="store_true", help="Refetch even if cache exists")
-    ap.add_argument("--out", default=str(DEFAULT_OUT), help="Output JSON path")
-    args = ap.parse_args(argv)
-    use_cache = not args.no_cache
-    out = Path(args.out)
-    if not out.is_absolute():
-        out = (Path.cwd() / out).resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
+def _num(x, nd=2):
+    if x is None:
+        return None
+    v = round(float(x), nd)
+    return int(v) if v == int(v) else v
 
-    warmup()
 
-    # Day files (TWSE/TPEx/tick) are immutable once published and are kept in
-    # the Actions cache between runs. Month files grow daily: always refetch.
-    cutoff = today_taipei() - timedelta(days=70)
-    for folder in (CACHE_TAIEX, CACHE_TX, CACHE_OTC):
-        for f in folder.glob("*"):
-            f.unlink()
-    for folder in (CACHE_TWSE, CACHE_TPEX, CACHE_TXTICK):
-        for f in folder.glob("*"):
-            try:
-                if date.fromisoformat(f.name[:10]) < cutoff:
-                    f.unlink()
-            except ValueError:
-                pass
+def day_row(r: dict, lots: bool) -> list:
+    """[open, high, low, close, volume, upper, middle, lower, week_line, month_line]
+    using exactly the values written to latest.json for that session."""
+    vol = r.get("volume")
+    if vol is not None:
+        vol = int(round(float(vol) / 1000)) if lots else int(round(float(vol)))
+    o = r.get("open")
+    if o is None:
+        o = r["close"]
+    return [_num(o), _num(r["high"]), _num(r["low"]), _num(r["close"]), vol,
+            _num(r["upper"]), _num(r["middle"]), _num(r["lower"]),
+            _num(r["week_line"]), _num(r["month_line"])]
 
-    explicit = None
-    if args.date:
-        explicit = datetime.strptime(args.date, "%Y-%m-%d").date()
-    asof = resolve_asof(explicit, use_cache=use_cache)
-    if asof is None:
-        log(f"no official session data for {iso(explicit)} (holiday or not yet published); no-op")
-        return 0
-    log(f"as-of {iso(asof)}")
 
+def write_day_file(asof: date, stocks: list[dict], indices: list[dict], days_dir: Path = DAYS_DIR) -> bool:
+    """Compact per-session rows for the daily charts (data/days/YYYY-MM-DD.json).
+    Returns True when the file was created or changed."""
+    days_dir.mkdir(parents=True, exist_ok=True)
+    obj = {
+        "date": iso(asof),
+        "s": {r["symbol"]: day_row(r, lots=True) for r in stocks},
+        "i": {r["symbol"]: day_row(r, lots=False) for r in indices},
+    }
+    pend = [r["symbol"] for r in indices if r.get("middle_pending")]
+    if pend:
+        obj["pending"] = pend
+    con = {r["symbol"]: r["contract"] for r in indices if r.get("contract")}
+    if con:
+        obj["contract"] = con
+    text = json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+    path = days_dir / f"{iso(asof)}.json"
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.write_text(text, encoding="utf-8")
+    files = sorted(days_dir.glob("????-??-??.json"))
+    for f in files[:-DAYS_KEEP]:
+        f.unlink()
+    return True
+
+
+def compute_asof(asof: date, use_cache: bool = True):
+    """All stock + index level rows for one as-of session (None if TWSE has no data)."""
     start = window_start(asof)
-    log(f"loading market days {iso(start)} → {iso(asof)} (ISO week Mon {iso(week_monday(asof))}, month start {iso(month_start(asof))})")
-    if not use_cache:
-        for d in daterange(start, asof):
-            for cand in (
-                CACHE_TWSE / f"{iso(d)}.json",
-                CACHE_TWSE / f"{iso(d)}.csv",
-                CACHE_TPEX / f"{iso(d)}.json",
-            ):
-                if cand.exists():
-                    cand.unlink()
-        for y, m in {(start.year, start.month), (asof.year, asof.month)}:
-            for folder, ext in ((CACHE_TAIEX, ".json"), (CACHE_TX, ".csv"), (CACHE_OTC, ".json")):
-                cand = folder / f"{y:04d}-{m:02d}{ext}"
-                if cand.exists():
-                    cand.unlink()
-
     twse_by_day, tpex_by_day, trading = load_or_fetch_market_days(start, asof, use_cache=use_cache)
     if asof not in twse_by_day:
         log(f"TWSE has no data for {iso(asof)}; no-op")
-        return 0
+        return None
     log(f"trading days loaded: {', '.join(iso(d) for d in trading)}")
     log(f"TWSE names on as-of: {len(twse_by_day[asof])}; TPEX: {len(tpex_by_day.get(asof) or [])}")
 
@@ -1307,6 +1306,66 @@ def main(argv=None) -> int:
         indices.append(compute_one(otc_last, otc_hist, asof, use_vwap=False))
     else:
         log("WARN: OTC index missing as-of bar")
+    return stocks, indices
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="Compute custom band levels for all TWSE/TPEX names.")
+    ap.add_argument("--date", help="As-of ISO date (default: latest trading day, Asia/Taipei)")
+    ap.add_argument("--no-cache", action="store_true", help="Refetch even if cache exists")
+    ap.add_argument("--out", default=str(DEFAULT_OUT), help="Output JSON path")
+    args = ap.parse_args(argv)
+    use_cache = not args.no_cache
+    out = Path(args.out)
+    if not out.is_absolute():
+        out = (Path.cwd() / out).resolve()
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    warmup()
+
+    # Day files (TWSE/TPEx/tick) are immutable once published and are kept in
+    # the Actions cache between runs. Month files grow daily: always refetch.
+    cutoff = today_taipei() - timedelta(days=70)
+    for folder in (CACHE_TAIEX, CACHE_TX, CACHE_OTC):
+        for f in folder.glob("*"):
+            f.unlink()
+    for folder in (CACHE_TWSE, CACHE_TPEX, CACHE_TXTICK):
+        for f in folder.glob("*"):
+            try:
+                if date.fromisoformat(f.name[:10]) < cutoff:
+                    f.unlink()
+            except ValueError:
+                pass
+
+    explicit = None
+    if args.date:
+        explicit = datetime.strptime(args.date, "%Y-%m-%d").date()
+    asof = resolve_asof(explicit, use_cache=use_cache)
+    if asof is None:
+        log(f"no official session data for {iso(explicit)} (holiday or not yet published); no-op")
+        return 0
+    log(f"as-of {iso(asof)}")
+
+    start = window_start(asof)
+    log(f"loading market days {iso(start)} → {iso(asof)} (ISO week Mon {iso(week_monday(asof))}, month start {iso(month_start(asof))})")
+    if not use_cache:
+        for d in daterange(start, asof):
+            for cand in (
+                CACHE_TWSE / f"{iso(d)}.json",
+                CACHE_TWSE / f"{iso(d)}.csv",
+                CACHE_TPEX / f"{iso(d)}.json",
+            ):
+                if cand.exists():
+                    cand.unlink()
+        for y, m in {(start.year, start.month), (asof.year, asof.month)}:
+            for folder, ext in ((CACHE_TAIEX, ".json"), (CACHE_TX, ".csv"), (CACHE_OTC, ".json")):
+                cand = folder / f"{y:04d}-{m:02d}{ext}"
+                if cand.exists():
+                    cand.unlink()
+
+    res = compute_asof(asof, use_cache=use_cache)
+    if res is None:
+        return 0
+    stocks, indices = res
 
     by_sym = {r["symbol"]: r for r in stocks}
     for r in indices:
@@ -1324,6 +1383,8 @@ def main(argv=None) -> int:
             if c.get("ok") is False:
                 log(f"  {c}")
 
+    if write_day_file(asof, stocks, indices):
+        log(f"wrote {DAYS_DIR.name}/{iso(asof)}.json (chart history)")
     payload = build_payload(asof, stocks, indices, ver)
     existing = None
     if out.exists():
