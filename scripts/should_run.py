@@ -13,6 +13,8 @@ def decide() -> tuple[bool, str]:
     now = datetime.now(ZoneInfo("Asia/Taipei"))
     if now.weekday() >= 5:
         return False, "weekend"
+    if now.hour < 13:
+        return False, "before the TW close (US-index runs only)"
     try:
         j = json.load(open("data/latest.json", encoding="utf-8"))
     except Exception as e:
@@ -38,10 +40,30 @@ def decide() -> tuple[bool, str]:
     return False, "today's data already final"
 
 
+def decide_us() -> tuple[bool, str]:
+    """US indices are independent of the TW session: run when us.json is older
+    than the latest finished US session (Nasdaq Composite / PHLX Semiconductor)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import us_calendar as uc
+    want = uc.last_completed_session().isoformat()
+    try:
+        j = json.load(open("data/us.json", encoding="utf-8"))
+    except Exception as e:
+        return True, f"no readable us.json ({e})"
+    have = {r.get("symbol"): r.get("date") for r in j.get("indices") or []}
+    stale = [s for s in ("IXIC", "SOX") if (have.get(s) or "") < want]
+    if stale:
+        return True, f"US session {want} missing for {stale}"
+    return False, f"US data already has {want}"
+
+
 run, why = decide()
+run_us, why_us = decide_us()
 print(f"gate: run={str(run).lower()} ({why})")
+print(f"gate: run_us={str(run_us).lower()} ({why_us})")
 out = os.environ.get("GITHUB_OUTPUT")
 if out:
     with open(out, "a") as f:
         f.write(f"run={str(run).lower()}\n")
+        f.write(f"run_us={str(run_us).lower()}\n")
 sys.exit(0)

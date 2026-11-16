@@ -390,6 +390,7 @@
       <p>中心 = (9H + 9L + 10C) / 28；上軌 = 中心 + (221/274)(H − L)；下軌 = 中心 − (221/274)(H − L)</p>
       <p>Q = (13H + 13L + 10C) / 36；個股中軌 = (Q + 當日均價) / 2，均價 = 成交金額 ÷ 成交股數；指數與台指期近月（日盤）中軌 = Q</p>
       <p>台指期全盤：H、L 取夜盤加日盤的最高、最低，C 取日盤收盤；中軌 = (Q + 全盤成交均價) / 2，均價由期交所每日逐筆成交資料計算；週守、月守也用全盤高低。</p>
+      <p>納指、費半：與加權指數相同的指數算法（中軌 = Q），日期用美東交易日，週守、月守以美東的當週（週一起）與當月計算。資料來自 Nasdaq 公開歷史行情（官方日開高低收），備援為 Yahoo Finance。</p>
       <p>週守、月守 = (37HH + 37LL + 10C) / 84，HH、LL 為本週（週一起）或本月迄今的最高、最低，C 為最新收盤。</p>
       <p>位置：收盤 ≥ 上軌為站上上軌；中軌 ≤ 收盤 ＜ 上軌為介於中軌–上軌；下軌 ＜ 收盤 ＜ 中軌為介於下軌–中軌；收盤 ≤ 下軌為跌破下軌。全部四捨五入到小數兩位。</p>
       <p>資料來源：證交所每日收盤行情、櫃買中心每日收盤行情與櫃買指數月查詢（含開高低收）、證交所加權指數歷史、期交所台指期日盤與夜盤行情、期交所每日逐筆成交資料。依公開歷史行情獨立計算，僅供個人參考。</p>
@@ -447,7 +448,7 @@
         ${pillPos(r.pos)}
       </div>
       <div class="pills">${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}</div>
-      <div class="card-close">收盤 ${fmt(r.close)}</div>
+      <div class="card-close">${r.market === "US" ? `美東 ${md(r.date)} 收盤 ${fmt(r.close)} · 點位適用美東 ${md(r.next)}` : `收盤 ${fmt(r.close)}`}</div>
       ${levels(r)}
       ${r.middle_pending ? `<div class="note">中軌暫以 Q 估算，期交所逐筆資料約 16:45（台北時間）公布後會自動更新。</div>` : ""}
       <button type="button" class="chartbtn">看日線圖 ›</button>
@@ -460,11 +461,12 @@
         ${pillPos(r.pos)}
       </div>
       <div class="pills" style="margin-bottom:8px">${pillGuard(r.above_week, "週守")} ${pillGuard(r.above_month, "月守")}</div>
-      <div class="card-close" style="margin:0 0 8px">收盤 ${fmt(r.close)}</div>
+      <div class="card-close" style="margin:0 0 8px">${r.market === "US" ? `美東 ${md(r.date)} 收盤 ${fmt(r.close)} · 點位適用美東 ${md(r.next)}` : `收盤 ${fmt(r.close)}`}</div>
       ${levels(r)}
       <button type="button" class="chartbtn">看日線圖 ›</button>
     </article>`;
   }
+  function md(iso) { if (!iso) return ""; const [, m, d] = String(iso).split("-"); return `${Number(m)}/${Number(d)}`; }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
   }
@@ -475,6 +477,13 @@
     if (flt === "au") xs = xs.filter((r) => r.pos === "au");
     if (flt === "dl") xs = xs.filter((r) => r.pos === "dl");
     if (flt === "wm") xs = xs.filter((r) => r.above_week && r.above_month);
+    let ix = [];
+    if (kw) {
+      ix = IDX.filter((r) => [r.symbol, r.name, r.short, ...(r.aliases || [])].some((x) => x && String(x).toLowerCase().includes(kw)));
+      if (flt === "au") ix = ix.filter((r) => r.pos === "au");
+      if (flt === "dl") ix = ix.filter((r) => r.pos === "dl");
+      if (flt === "wm") ix = ix.filter((r) => r.above_week && r.above_month);
+    }
     const k = sortKey;
     xs = [...xs].sort((a, b) => {
       let d;
@@ -483,7 +492,7 @@
       else d = (Number(a[k]) || 0) - (Number(b[k]) || 0);
       return asc ? d : -d;
     });
-    return xs;
+    return ix.concat(xs);
   }
 
   function render() {
@@ -557,11 +566,13 @@
     return f + "（台北時間）";
   }
 
+  const usP = fetch("data/us.json", { cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch(() => null);
   fetch("data/latest.json", { cache: "no-store" })
     .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
-    .then((data) => {
+    .then((data) => usP.then((us) => [data, us]))
+    .then(([data, us]) => {
       ROWS = data.stocks || [];
-      IDX = data.indices || [];
+      IDX = (data.indices || []).concat((us && us.indices) || []);
       const n = (data.counts && data.counts.stocks) || ROWS.length;
       const ver = data.verification || {};
       let vtxt = "";
@@ -573,7 +584,7 @@
       $("idx").innerHTML = IDX.map(card).join("");
       const note = $("idx-note");
       note.hidden = false;
-      note.textContent = "台指期近月只用日盤；台指期全盤用夜盤加日盤（夜盤為前一交易日 15:00 起），合約為當天不結算的最近月，結算日當天改用次月。櫃買指數取自櫃買中心公開的每月開高低收。";
+      note.textContent = "台指期近月只用日盤；台指期全盤用夜盤加日盤（夜盤為前一交易日 15:00 起），合約為當天不結算的最近月，結算日當天改用次月。櫃買指數取自櫃買中心公開的每月開高低收。那斯達克綜合指數（納指）與費城半導體指數（費半）用美東日期的日 K，台北時間每週二至週六早上約 5:30–8:40 更新，點位適用下一個美股交易日（已排除美股休市日）。";
       render();
       const m = location.hash.match(/^#chart=(.+)$/);
       if (m) openChart(decodeURIComponent(m[1]), false);
@@ -633,7 +644,7 @@
     }
     $("sheet").hidden = false;
     document.body.style.overflow = "hidden";
-    $("sh-title").innerHTML = `${r.market === "TWSE" || r.market === "TPEX" ? `<span class="code">${escapeHtml(r.symbol)}</span>` : ""}${escapeHtml(r.name)} <span class="code">日線</span>`;
+    $("sh-title").innerHTML = `${r.market === "TWSE" || r.market === "TPEX" ? `<span class="code">${escapeHtml(r.symbol)}</span>` : ""}${escapeHtml(r.name)} <span class="code">${r.market === "US" ? "日線（美東日期）" : "日線"}</span>`;
     $("trend").innerHTML = "";
     $("readout").textContent = "";
     $("chart").innerHTML = `<div class="sh-msg">讀取日線資料中…</div>`;
@@ -686,7 +697,8 @@
     const L = window.LightweightCharts;
     const n = h.t.length;
     if (!n) { $("chart").innerHTML = `<div class="sh-msg">沒有歷史資料</div>`; return; }
-    const fut = nextWeekday(h.t[n - 1]);
+    const fut = h.next || nextWeekday(h.t[n - 1]);
+    const isUS = r.market === "US";
     const fut2 = nextWeekday(fut); // lets the last step show as a full-width segment
     const ti = trendInfo(r, h);
     const pend = h.p && h.p[n - 1];
@@ -779,13 +791,15 @@
         return `${ln.label} <b>${f2(v)}</b>`;
       }).join(" · ");
       if (i === n) {
-        $("readout").innerHTML = `<b>${fut}</b>（下一交易日適用，= 表格點位${pend ? "，中軌暫以 Q 估算" : ""}）<br>${lv}`;
+        $("readout").innerHTML = `<b>${fut}</b>（${isUS ? "美東下一交易日" : "下一交易日"}適用，= 表格點位${pend ? "，中軌暫以 Q 估算" : ""}）<br>${lv}`;
         return;
       }
       const ch = i > 0 ? h.c[i] - h.c[i - 1] : 0;
       const pc = i > 0 && h.c[i - 1] ? ch / h.c[i - 1] * 100 : 0;
       const cls = ch > 0 ? "up" : ch < 0 ? "dn" : "";
-      const vtxt = hasVol && h.v[i] != null ? ` 量 <b>${Number(h.v[i]).toLocaleString("zh-TW")}</b>${r.market === "FUT" ? "口" : "張"}` : "";
+      const vtxt = hasVol && h.v[i] != null ? (h.vunit === "股"
+        ? ` 量 <b>${(h.v[i] / 1e8).toFixed(1)}</b>億股`
+        : ` 量 <b>${Number(h.v[i]).toLocaleString("zh-TW")}</b>${r.market === "FUT" ? "口" : "張"}`) : "";
       $("readout").innerHTML = `<b>${h.t[i]}</b> 開 <b>${f2(h.o[i])}</b> 高 <b>${f2(h.h[i])}</b> 低 <b>${f2(h.l[i])}</b> 收 <b class="${cls}">${f2(h.c[i])}</b> <span class="${cls}">${ch >= 0 ? "+" : ""}${fmt(ch)} (${pc >= 0 ? "+" : ""}${pc.toFixed(2)}%)</span>${vtxt}<br>${lv}`;
     }
     chart.subscribeCrosshairMove((p) => {
@@ -822,7 +836,7 @@
       syncBand();
     };
     const first = h.t[0];
-    $("sh-foot").innerHTML = `K 線紅漲綠跌，雙指縮放、左右拖曳看更早。點位線為「前一交易日算出、當天適用」的階梯線，上軌與下軌之間淡色底為通道；中軌紅色代表比前一天上升、綠色代表下降。最右一格是下一交易日要用的點位，數值與表格相同。趨勢標籤：收盤在當天中軌之上且中軌近 5 日上升為多頭，在中軌之下且中軌下降為空頭，其餘為盤整。歷史自 ${first} 起共 ${n} 個交易日${r.symbol === "TXF" ? "；全盤中軌在期交所逐筆資料保存期間外的較早日期以 Q 代替" : ""}${r.symbol === "TX" ? "；近月合約換月時價格會跳動" : ""}。僅供參考，非投資建議。<br>圖表元件：<a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0），Copyright © TradingView, Inc.`;
+    $("sh-foot").innerHTML = `K 線紅漲綠跌，雙指縮放、左右拖曳看更早。點位線為「前一交易日算出、當天適用」的階梯線，上軌與下軌之間淡色底為通道；中軌紅色代表比前一天上升、綠色代表下降。最右一格是下一交易日要用的點位，數值與表格相同。趨勢標籤：收盤在當天中軌之上且中軌近 5 日上升為多頭，在中軌之下且中軌下降為空頭，其餘為盤整。歷史自 ${first} 起共 ${n} 個交易日${r.symbol === "TXF" ? "；全盤中軌在期交所逐筆資料保存期間外的較早日期以 Q 代替" : ""}${r.symbol === "TX" ? "；近月合約換月時價格會跳動" : ""}${r.market === "US" ? "；日期為美東交易日，已排除美股休市日" : ""}。僅供參考，非投資建議。<br>圖表元件：<a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0），Copyright © TradingView, Inc.`;
 
     if (chartRO) chartRO.disconnect();
     chartRO = new ResizeObserver(() => { if (chart) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight }); });
