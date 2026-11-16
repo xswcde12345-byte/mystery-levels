@@ -52,8 +52,11 @@ EXCLUDE_NAME = (
 )
 
 
+_T0 = time.time()
+
+
 def log(msg: str) -> None:
-    print(msg, flush=True)
+    print(f"[{time.time() - _T0:6.1f}s] {msg}", flush=True)
 
 
 def D(x) -> Decimal:
@@ -148,21 +151,26 @@ def warmup() -> None:
         "https://www.taifex.com.tw/cht/3/futDailyMarketView",
     ):
         try:
-            http_get(url, tries=2, timeout=20, sleep=True)
+            http_get(url, tries=1, timeout=10, sleep=True)
         except Exception as e:
             log(f"  warmup {url} failed ({e})")
     _warmed = True
 
 
-def http_get(url: str, tries: int = 5, timeout: int = 45, sleep: bool = True, referer: str | None = None) -> bytes:
+def http_get(url: str, tries: int = 3, timeout: int = 90, sleep: bool = True, referer: str | None = None) -> bytes:
     last = None
     for i in range(tries):
         if sleep:
             _sleep_gate()
         try:
             req = urllib.request.Request(url, headers=_headers(referer=referer))
+            t0 = time.time()
             with _opener.open(req, timeout=timeout) as r:
-                return r.read()
+                body = r.read()
+            dt = time.time() - t0
+            if dt > 15:
+                log(f"    slow GET {dt:.0f}s {len(body)}B {url[:90]}")
+            return body
         except Exception as e:
             last = e
             log(f"  retry {i+1}/{tries} GET {url[:90]}… ({e})")
@@ -170,7 +178,7 @@ def http_get(url: str, tries: int = 5, timeout: int = 45, sleep: bool = True, re
     raise RuntimeError(f"GET failed {url}: {last}")
 
 
-def http_post(url: str, data: dict, tries: int = 5, timeout: int = 60, referer: str | None = None) -> bytes:
+def http_post(url: str, data: dict, tries: int = 3, timeout: int = 90, referer: str | None = None) -> bytes:
     last = None
     body = urllib.parse.urlencode(data).encode()
     for i in range(tries):
@@ -278,7 +286,21 @@ def _twse_urls(d: date) -> list[tuple[str, str]]:
     ]
 
 
+_DAY_MEMO: dict = {}
+
+
 def fetch_twse_day(d: date, use_cache: bool = True) -> list[dict] | None:
+    if ("twse", d) in _DAY_MEMO:
+        return _DAY_MEMO[("twse", d)]
+    rows = _fetch_twse_day(d, use_cache=use_cache and d != today_taipei())
+    if rows:
+        _DAY_MEMO[("twse", d)] = rows
+    return rows
+
+
+def _fetch_twse_day(d: date, use_cache: bool = True) -> list[dict] | None:
+    """Today's file is always refetched: the exchange can revise same-day
+    figures (e.g. turnover) in the evening; earlier days are final."""
     path = CACHE_TWSE / f"{iso(d)}.json"
     # also accept older .csv cache name
     legacy = CACHE_TWSE / f"{iso(d)}.csv"
@@ -424,10 +446,53 @@ def _parse_tpex_legacy(raw: bytes) -> list[dict]:
     return rows
 
 
+def _parse_tpex_openapi(raw: bytes, d: date) -> list[dict]:
+    """TPEx OpenAPI mainboard daily close quotes (latest session only)."""
+    try:
+        arr = json.loads(raw.decode("utf-8-sig"))
+    except Exception:
+        return []
+    want = f"{d.year - 1911}{d.month:02d}{d.day:02d}"
+    rows = []
+    for o in arr if isinstance(arr, list) else []:
+        if str(o.get("Date") or "").strip() != want:
+            continue
+        h, l, c = fnum(o.get("High")), fnum(o.get("Low")), fnum(o.get("Close"))
+        if h is None or l is None or c is None:
+            continue
+        rows.append({
+            "symbol": str(o.get("SecuritiesCompanyCode") or "").strip(),
+            "name": str(o.get("CompanyName") or "").strip(),
+            "market": "TPEX",
+            "open": fnum(o.get("Open")), "high": h, "low": l, "close": c,
+            "volume": fnum(o.get("TradingShares")),
+            "amount": fnum(o.get("TransactionAmount")),
+        })
+    return rows
+
+
+_TPEX_OPENAPI: dict = {}
+
+
 def fetch_tpex_day(d: date, use_cache: bool = True) -> list[dict] | None:
+    if ("tpex", d) in _DAY_MEMO:
+        return _DAY_MEMO[("tpex", d)]
+    rows = _fetch_tpex_day(d, use_cache=use_cache and d != today_taipei())
+    if rows:
+        _DAY_MEMO[("tpex", d)] = rows
+    return rows
+
+
+def _fetch_tpex_day(d: date, use_cache: bool = True) -> list[dict] | None:
     path = CACHE_TPEX / f"{iso(d)}.json"
     if use_cache and path.exists() and path.stat().st_size > 200:
         raw = path.read_bytes()
+        try:
+            j = json.loads(raw.decode("utf-8-sig"))
+            if isinstance(j, dict) and j.get("openapi_rows"):
+                return j["openapi_rows"]
+        except Exception:
+            pass
         rows = parse_tpex_quotes(raw) or _parse_tpex_legacy(raw)
         if rows:
             return rows
@@ -454,11 +519,29 @@ def fetch_tpex_day(d: date, use_cache: bool = True) -> list[dict] | None:
         ),
     ]
     log(f"  fetch TPEX {iso(d)}")
+    # Fast path: OpenAPI snapshot (latest session only; same official numbers)
+    if d >= today_taipei() - timedelta(days=4):
+        try:
+            if "raw" not in _TPEX_OPENAPI:
+                _TPEX_OPENAPI["raw"] = b""
+                _TPEX_OPENAPI["raw"] = http_get(
+                    "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes",
+                    referer="https://www.tpex.org.tw/openapi/", tries=2, timeout=150)
+            raw = _TPEX_OPENAPI["raw"]
+            rows = _parse_tpex_openapi(raw, d)
+            if rows:
+                log(f"    TPEX {iso(d)} via OpenAPI ({len(rows)} rows)")
+                path.write_text(json.dumps({"date": yyyymmdd(d), "openapi_rows": rows},
+                                           ensure_ascii=False), encoding="utf-8")
+                return rows
+        except Exception as e:
+            log(f"    TPEX OpenAPI fallback failed: {e}")
     last_err = None
     date_mismatch = False
     for url, ref, legacy in endpoints:
         try:
-            raw = http_get(url, referer=ref)
+            # TPEx is sometimes very slow from cloud runners: bounded tries
+            raw = http_get(url, referer=ref, tries=2, timeout=120)
         except Exception as e:
             last_err = e
             log(f"    endpoint failed: {e}")
@@ -1088,6 +1171,20 @@ def main(argv=None) -> int:
 
     warmup()
 
+    # Day files (TWSE/TPEx/tick) are immutable once published and are kept in
+    # the Actions cache between runs. Month files grow daily: always refetch.
+    cutoff = today_taipei() - timedelta(days=70)
+    for folder in (CACHE_TAIEX, CACHE_TX, CACHE_OTC):
+        for f in folder.glob("*"):
+            f.unlink()
+    for folder in (CACHE_TWSE, CACHE_TPEX, CACHE_TXTICK):
+        for f in folder.glob("*"):
+            try:
+                if date.fromisoformat(f.name[:10]) < cutoff:
+                    f.unlink()
+            except ValueError:
+                pass
+
     explicit = None
     if args.date:
         explicit = datetime.strptime(args.date, "%Y-%m-%d").date()
@@ -1217,6 +1314,8 @@ def main(argv=None) -> int:
     ver = verify(by_sym, asof)
     if ver.get("all_zero_error"):
         log(f"verification: PASS {ver['passed']}/{ver['checked']} (0 error)")
+    elif ver.get("checked") == 0:
+        log("verification: no reference values for this date (normal)")
     elif ver.get("skipped"):
         log(f"verification skipped: {ver.get('reason')}")
     else:

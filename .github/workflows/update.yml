@@ -2,10 +2,12 @@ name: Update and deploy
 
 on:
   schedule:
-    # Weekdays, after the Taiwan cash-market close (13:30 Taipei).
-    - cron: "10 7 * * 1-5"    # 15:10 台北時間
-    - cron: "30 9 * * 1-5"    # 17:30 台北時間（資料若延遲則重試）
-    - cron: "0 12 * * 1-5"    # 20:00 台北時間（再補一次）
+    # Weekdays (UTC 06–14 = Taipei 14–22, same calendar day). Off the :00 mark,
+    # because GitHub delays/drops top-of-hour schedules most. Extra runs are cheap:
+    # a gate step exits in seconds once today's final data is already published.
+    - cron: "7,27,47 6-13 * * 1-5"   # 台北 14:07, 14:27, 14:47 … 21:47（每 20 分）
+    - cron: "17 7-12 * * 1-5"        # 台北 15:17 … 20:17（備援，錯開時間）
+    - cron: "37 14 * * 1-5"          # 台北 22:37（最後補一次）
   workflow_dispatch:
   push:
     branches: [main]
@@ -22,6 +24,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -29,31 +32,61 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        if: github.event_name != 'push'
-        uses: actions/setup-python@v5
+      - name: Gate (skip if today's data is already final)
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            python3 scripts/should_run.py
+          else
+            echo "run=${{ github.event_name != 'push' }}" >> "$GITHUB_OUTPUT"
+            echo "gate: ${{ github.event_name }} event"
+          fi
+
+      - name: Restore market data cache
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache/restore@v4
         with:
-          python-version: "3.12"
+          path: cache
+          key: mkt-${{ github.run_id }}
+          restore-keys: mkt-
 
       - name: Compute levels
-        if: github.event_name != 'push'
+        id: compute
+        if: steps.gate.outputs.run == 'true'
+        timeout-minutes: 18
         run: python3 scripts/compute_all.py --out data/latest.json
 
+      - name: Save market data cache
+        if: always() && steps.gate.outputs.run == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: cache
+          key: mkt-${{ hashFiles('cache/twse/*', 'cache/tpex/*', 'cache/txtick/*') }}
+        continue-on-error: true
+
       - name: Commit data if changed
-        if: github.event_name != 'push'
+        id: commit
+        if: steps.gate.outputs.run == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data/latest.json
           if git diff --staged --quiet; then
             echo "No data change (holiday, late publish, or already up to date)"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             DATE=$(python3 -c "import json; print(json.load(open('data/latest.json'))['date'])")
             git commit -m "chore: update levels for ${DATE}"
-            git push
+            for i in 1 2 3; do
+              git pull --rebase -X theirs origin main && git push && break
+              sleep 5
+            done
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Stage site
+        id: stage
+        if: github.event_name != 'schedule' || steps.commit.outputs.changed == 'true'
         run: |
           mkdir -p _site/data
           cp index.html _site/
@@ -61,13 +94,16 @@ jobs:
           touch _site/.nojekyll
 
       - name: Configure Pages
+        if: steps.stage.outcome == 'success'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
+        if: steps.stage.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
 
       - name: Deploy to GitHub Pages
         id: deploy
+        if: steps.stage.outcome == 'success'
         uses: actions/deploy-pages@v4
