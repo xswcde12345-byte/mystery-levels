@@ -839,6 +839,26 @@ def tx_front_by_day(rows: list[dict]) -> dict[date, dict]:
     return out
 
 
+def tx_day_hist(tx_rows: list[dict], start: date, asof: date) -> list[dict]:
+    """Day-session bars of ONE contract: the as-of day's front month (by volume).
+    Week/month windows must not mix contracts around a roll (backtest of the
+    author's settlement-day 日XX台指 posts: same-contract day bars, C = day close)."""
+    front = tx_front_by_day(tx_rows).get(asof)
+    out = []
+    if not front:
+        return out
+    cm = front.get("contract")
+    for r in sorted(tx_rows, key=lambda x: x["date"]):
+        if r.get("contract") == cm and start <= r["date"] <= asof:
+            out.append({
+                "symbol": "TX", "name": "台指期近月", "market": "FUT",
+                "date": r["date"], "open": r["open"], "high": r["high"], "low": r["low"],
+                "close": r["close"], "volume": r.get("volume"), "amount": None,
+                "contract": cm,
+            })
+    return out
+
+
 # ---------------- universe / formulas ----------------
 def keep_security(row: dict) -> bool:
     name = row.get("name") or ""
@@ -1189,7 +1209,7 @@ def build_payload(asof: date, stocks: list[dict], indices: list[dict], ver: dict
             "TWSE": "MI_INDEX / STOCK_DAY_ALL (official daily close, volume in shares, amount in TWD)",
             "TPEX": "dailyQuotes (official shares and TWD; legacy fallback converts 張/千元)",
             "TAIEX": "TWSE MI_5MINS_HIST",
-            "TX": "TAIFEX futDataDown, day session, front month by volume",
+            "TX": "TAIFEX futDataDown, day session, front month by volume; week/month windows use that same contract",
             "TXF": "TAIFEX nearest non-expiring month, night+day; upper/middle/lower from the 13:39:58 snapshot of the TAIFEX daily tick file (middle = (Q + snapshot VWAP)/2); week/month lines through the night session of the as-of day, C = night close",
             "OTC": "TPEx indexInfo/inx monthly OHLC (official open/high/low/close)",
         },
@@ -1288,16 +1308,7 @@ def compute_asof(asof: date, use_cache: bool = True):
         tx_rows.extend(fetch_tx_month(y, m, use_cache=use_cache))
         otc_rows.extend(fetch_otc_month(y, m, use_cache=use_cache))
     taiex_hist = [r for r in taiex_rows if start <= r["date"] <= asof]
-    tx_front = tx_front_by_day(tx_rows)
-    tx_hist = []
-    for d, rec in sorted(tx_front.items()):
-        if start <= d <= asof:
-            tx_hist.append({
-                "symbol": "TX", "name": "台指期近月", "market": "FUT",
-                "date": d, "open": rec["open"], "high": rec["high"], "low": rec["low"],
-                "close": rec["close"], "volume": rec.get("volume"), "amount": None,
-                "contract": rec.get("contract"),
-            })
+    tx_hist = tx_day_hist(tx_rows, start, asof)
 
     twse_hist = history_map(twse_by_day)
     tpex_hist = history_map(tpex_by_day)
