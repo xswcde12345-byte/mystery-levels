@@ -40,10 +40,10 @@ def main() -> int:
         setattr(ca, name, wrap)
     # TAIFEX keeps the daily tick files only ~30 trading days; skip older ones
     # (the full-session middle line then falls back to Q, flagged as pending).
-    orig_vwap = ca.fetch_tx_full_vwap
+    orig_ticks = ca.fetch_tx_full_ticks
     tick_from = ca.today_taipei() - timedelta(days=int(a.tick_days))
-    ca.fetch_tx_full_vwap = lambda d, c, use_cache=True: (
-        orig_vwap(d, c, use_cache=use_cache) if d >= tick_from else None)
+    ca.fetch_tx_full_ticks = lambda d, c, use_cache=True: (
+        orig_ticks(d, c, use_cache=use_cache) if d >= tick_from else None)
     if int(a.prefetch):
         from concurrent.futures import ThreadPoolExecutor
         days = [start + timedelta(days=i) for i in range((end - start).days + 1)]

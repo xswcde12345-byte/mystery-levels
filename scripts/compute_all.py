@@ -716,17 +716,26 @@ def tx_full_bars(rows_all: list[dict], contract: str) -> list[dict]:
             "high": max(hs), "low": min(ls), "close": day["close"],
             "volume": (day.get("volume") or 0) + ((night or {}).get("volume") or 0),
             "amount": None, "contract": contract, "has_night": bool(night),
+            "night_high": (night or {}).get("high"), "night_low": (night or {}).get("low"),
+            "night_close": (night or {}).get("close"),
         })
     return out
 
 
-def fetch_tx_full_vwap(d: date, contract: str, use_cache: bool = True) -> float | None:
-    """Full-session (night + day) VWAP of one TX contract from TAIFEX's public
-    daily tick file (published ~16:45 Taipei). Spread trades are excluded."""
-    path = CACHE_TXTICK / f"{iso(d)}_{contract}.json"
+# The author's full-session TU/TM/TD are taken from a live snapshot shortly
+# before the day-session close (backtest: trades up to ~13:39:58 Taipei).
+TXF_SNAP_CUT = "133958"
+
+
+def fetch_tx_full_ticks(d: date, contract: str, use_cache: bool = True) -> dict | None:
+    """Full-session (night + day) figures of one TX contract from TAIFEX's public
+    daily tick file (published ~16:45 Taipei). Spread trades are excluded.
+    Returns {"vwap": full-session VWAP, "snap": {"high","low","close","vwap"}}
+    where snap covers the night session plus day trades up to TXF_SNAP_CUT."""
+    path = CACHE_TXTICK / f"{iso(d)}_{contract}_snap.json"
     if use_cache and path.exists():
         try:
-            return json.loads(path.read_text())["vwap"]
+            return json.loads(path.read_text())
         except Exception:
             pass
     url = ("https://www.taifex.com.tw/file/taifex/Dailydownload/DailydownloadCSV/"
@@ -737,8 +746,7 @@ def fetch_tx_full_vwap(d: date, contract: str, use_cache: bool = True) -> float 
     except Exception as e:
         log(f"  TX tick file not available for {iso(d)} ({e})")
         return None
-    pv = Decimal(0)
-    vol = Decimal(0)
+    ticks = []
     day_seen = False
     ymd = yyyymmdd(d)
     for nm in zf.namelist():
@@ -754,17 +762,71 @@ def fetch_tx_full_vwap(d: date, contract: str, use_cache: bool = True) -> float 
                     q = Decimal(parts[5].strip())
                 except Exception:
                     continue
-                t = parts[3].strip()
-                if parts[0].strip() == ymd and "084500" <= t <= "134500":
+                dd, t = parts[0].strip(), parts[3].strip().zfill(6)
+                if dd == ymd and "084500" <= t <= "134500":
                     day_seen = True
-                pv += px * q
-                vol += q
-    if vol == 0 or not day_seen:
+                ticks.append((dd, t, px, q))
+    if not ticks or not day_seen:
         log(f"  TX tick file for {iso(d)} has no {contract} day trades")
         return None
-    vwap = float(pv / vol)
-    path.write_text(json.dumps({"vwap": vwap, "contract": contract}))
-    return vwap
+    ticks.sort(key=lambda x: (x[0], x[1]))  # stable: keeps file order within a second
+    pv = vol = Decimal(0)
+    s_pv = s_vol = Decimal(0)
+    s_h = s_l = s_c = None
+    for dd, t, px, q in ticks:
+        pv += px * q
+        vol += q
+        if dd == ymd and "084500" <= t and t > TXF_SNAP_CUT:
+            continue
+        s_pv += px * q
+        s_vol += q
+        s_h = px if s_h is None or px > s_h else s_h
+        s_l = px if s_l is None or px < s_l else s_l
+        s_c = px
+    out = {"vwap": float(pv / vol), "contract": contract, "snap": None}
+    if s_vol:
+        out["snap"] = {"high": float(s_h), "low": float(s_l), "close": float(s_c),
+                       "vwap": float(s_pv / s_vol), "cut": TXF_SNAP_CUT}
+    path.write_text(json.dumps(out))
+    return out
+
+
+def compute_txf(asof: date, txf_hist: list[dict], use_cache: bool = True,
+                ticks: dict | None = None, fetch: bool = True) -> dict | None:
+    """台指期全盤 card, matching the author's posting procedure (backtested):
+    - 上軌/中軌/下軌 from the ~13:40 snapshot (night + day up to 13:39:58):
+      bands on snapshot H/L/C, middle = (Q + snapshot VWAP) / 2.
+      Until the tick file is out, the final bar + Q is shown (middle_pending).
+    - 週守/月守 from full-session bars of the week/month up to and including the
+      night session that belongs to asof (the day session of asof excluded),
+      C = that night session's close."""
+    last = next((b for b in txf_hist if b["date"] == asof), None)
+    if not last or not last.get("has_night"):
+        return None
+    if ticks is None and fetch:
+        ticks = fetch_tx_full_ticks(asof, last["contract"], use_cache=use_cache)
+    rec = compute_one(last, txf_hist, asof, use_vwap=False)
+    snap = (ticks or {}).get("snap")
+    if snap:
+        h, l, c = snap["high"], snap["low"], snap["close"]
+        _, rec["upper"], rec["lower"] = center_bands(h, l, c)
+        rec["middle"] = middle_value(h, l, c, Decimal(str(snap["vwap"])), Decimal(1), True)
+        rec["snap"] = snap
+    else:
+        rec["middle_pending"] = True
+    nc = last.get("night_close")
+    if nc is not None:
+        nb = {"high": last["night_high"], "low": last["night_low"]}
+        for key, start in (("week_line", week_monday(asof)), ("month_line", month_start(asof))):
+            win = [b for b in txf_hist if start <= b["date"] < asof] + [nb]
+            rec[key] = mix_514(max(b["high"] for b in win), min(b["low"] for b in win), nc)
+        rec["above_week"] = rec["close"] >= rec["week_line"]
+        rec["above_month"] = rec["close"] >= rec["month_line"]
+    rec["pos"] = pos_flag(rec["close"], rec["upper"], rec["middle"], rec["lower"])
+    rec["pos_label"] = POS_LABEL[rec["pos"]]
+    rec["name"] = f"台指期全盤（{last['contract']}）"
+    rec["contract"] = last["contract"]
+    return rec
 
 
 def tx_front_by_day(rows: list[dict]) -> dict[date, dict]:
@@ -1128,7 +1190,7 @@ def build_payload(asof: date, stocks: list[dict], indices: list[dict], ver: dict
             "TPEX": "dailyQuotes (official shares and TWD; legacy fallback converts 張/千元)",
             "TAIEX": "TWSE MI_5MINS_HIST",
             "TX": "TAIFEX futDataDown, day session, front month by volume",
-            "TXF": "TAIFEX futDataDown day+night rows of the nearest non-expiring month; middle uses full-session VWAP from TAIFEX daily tick file",
+            "TXF": "TAIFEX nearest non-expiring month, night+day; upper/middle/lower from the 13:39:58 snapshot of the TAIFEX daily tick file (middle = (Q + snapshot VWAP)/2); week/month lines through the night session of the as-of day, C = night close",
             "OTC": "TPEx indexInfo/inx monthly OHLC (official open/high/low/close)",
         },
         "counts": {
@@ -1283,19 +1345,8 @@ def compute_asof(asof: date, use_cache: bool = True):
         tx_all.extend(fetch_tx_month(y, m, use_cache=True, sessions=("一般", "盤後")))
     fc = tx_full_contract(asof)
     txf_hist = [b for b in tx_full_bars(tx_all, fc) if start <= b["date"] <= asof]
-    txf_last = next((b for b in txf_hist if b["date"] == asof), None)
-    if txf_last and txf_last["has_night"]:
-        vwap = fetch_tx_full_vwap(asof, fc, use_cache=use_cache)
-        rec = compute_one(txf_last, txf_hist, asof, use_vwap=False)
-        if vwap is not None:
-            rec["middle"] = middle_value(txf_last["high"], txf_last["low"], txf_last["close"],
-                                         Decimal(str(vwap)), Decimal(1), True)
-            rec["pos"] = pos_flag(rec["close"], rec["upper"], rec["middle"], rec["lower"])
-            rec["pos_label"] = POS_LABEL[rec["pos"]]
-        else:
-            rec["middle_pending"] = True
-        rec["name"] = f"台指期全盤（{fc}）"
-        rec["contract"] = fc
+    rec = compute_txf(asof, txf_hist, use_cache=use_cache)
+    if rec:
         indices.append(rec)
     else:
         log("WARN: TX full-session bar missing")
