@@ -42,7 +42,7 @@ def decide() -> tuple[bool, str]:
 
 def decide_us() -> tuple[bool, str]:
     """US indices are independent of the TW session: run when us.json is older
-    than the latest finished US session (Nasdaq Composite / PHLX Semiconductor)."""
+    than the latest finished US session (S&P 500 / Nasdaq Composite / PHLX Semiconductor)."""
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import us_calendar as uc
     want = uc.last_completed_session().isoformat()
@@ -51,7 +51,7 @@ def decide_us() -> tuple[bool, str]:
     except Exception as e:
         return True, f"no readable us.json ({e})"
     have = {r.get("symbol"): r.get("date") for r in j.get("indices") or []}
-    stale = [s for s in ("IXIC", "SOX") if (have.get(s) or "") < want]
+    stale = [s for s in ("SPX", "IXIC", "SOX") if (have.get(s) or "") < want]
     if stale:
         return True, f"US session {want} missing for {stale}"
     return False, f"US data already has {want}"

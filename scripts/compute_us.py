@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Levels + chart history for two US indices (Nasdaq Composite, PHLX Semiconductor).
+"""Levels + chart history for three US indices (S&P 500, Nasdaq Composite, PHLX Semiconductor).
 
 Index variant of the same formulas as TAIEX/OTC (middle = Q, no VWAP); week/month
 lines use the ISO week / calendar month of US trading dates.
@@ -7,7 +7,7 @@ lines use the ISO week / calendar month of US trading dates.
 Primary source: Nasdaq public historical quotes API (official daily OHLC).
 Fallback: Yahoo Finance chart API. Unfinished sessions are never used.
 
-  python3 scripts/compute_us.py      -> data/us.json, data/us_hist/{IXIC,SOX}.json
+  python3 scripts/compute_us.py      -> data/us.json, data/us_hist/{SPX,IXIC,SOX}.json
 """
 from __future__ import annotations
 
@@ -28,6 +28,8 @@ KEEP = 260
 UA = ca.UA
 
 SYMS = [
+    {"symbol": "SPX", "name": "標準普爾500指數", "short": "標普500", "nasdaq": "SPX", "yahoo": "%5EGSPC",
+     "aliases": ["標普500", "標普", "標準普爾", "S&P500", "S&P 500", "SPX", "GSPC", "SP500", "美股"]},
     {"symbol": "IXIC", "name": "那斯達克綜合指數", "short": "納指", "nasdaq": "COMP", "yahoo": "%5EIXIC",
      "aliases": ["納指", "那斯達克", "那指", "NASDAQ", "IXIC", "COMP", "美股"]},
     {"symbol": "SOX", "name": "費城半導體指數", "short": "費半", "nasdaq": "SOX", "yahoo": "%5ESOX",
@@ -63,6 +65,9 @@ def fetch_nasdaq(code: str, start: date, end: date) -> list[dict]:
            f"&fromdate={start.isoformat()}&todate={end.isoformat()}&limit=9999")
     j = get_json(url)
     rows = (((j.get("data") or {}).get("tradesTable") or {}).get("rows")) or []
+    if not rows:
+        status = j.get("status") or {}
+        raise RuntimeError(f"Nasdaq {code}: no rows (status={status})")
     out = []
     for r in rows:
         m, d, y = [int(x) for x in r["date"].split("/")]
@@ -117,7 +122,7 @@ def load(sym: dict, done: date) -> tuple[list[dict], str]:
             bars = sorted(bars + extra, key=lambda x: x["date"])
             src = (src + "+Yahoo") if src else "Yahoo"
     # volume (Nasdaq API omits index volume): take Yahoo's when it has one
-    if sym["symbol"] == "IXIC":
+    if sym["symbol"] in ("SPX", "IXIC"):
         if not yb:
             try:
                 yb = fetch_yahoo(sym["yahoo"])
@@ -187,7 +192,7 @@ def main() -> int:
             keep[c["symbol"]] = c
         cards = [keep[s["symbol"]] for s in SYMS if s["symbol"] in keep]
     payload = {"date": max(c["date"] for c in cards), "timezone": "America/New_York",
-               "sources": {"US": "Nasdaq public historical quotes API (official daily OHLC); Yahoo Finance chart API as fallback and for Nasdaq Composite volume"},
+               "sources": {"US": "Nasdaq public historical quotes API (official daily OHLC); Yahoo Finance chart API as fallback and for S&P 500 / Nasdaq Composite volume. S&P 500 (SPX) is not currently served by the Nasdaq index API, so Yahoo ^GSPC is used."},
                "source_used": sources, "indices": cards}
     if old and {k: v for k, v in old.items() if k != "generated_at"} == payload:
         ca.log("us.json unchanged")
