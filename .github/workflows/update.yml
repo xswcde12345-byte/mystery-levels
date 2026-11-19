@@ -170,7 +170,7 @@ jobs:
         timeout-minutes: 8
         continue-on-error: true
         run: |
-          pip install -q numpy
+          pip install -q numpy playwright
           python scripts/fear_us.py
 
       - name: Save market data cache

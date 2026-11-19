@@ -79,7 +79,10 @@ def cboe(name):
 
 def fsi():
     path = os.path.join(OUT, "stlfsi4.csv")
-    t = None if os.environ.get("FEAR_SKIP_FRED") else http("https://fred.stlouisfed.org/graph/fredgraph.csv?id=STLFSI4", timeout=60, tries=2)
+    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=STLFSI4"
+    t = None if os.environ.get("FEAR_SKIP_FRED") else http(url, timeout=30, tries=1)
+    if not (t and "STLFSI4" in t.splitlines()[0]):
+        t = fred_browser(url)
     if t and "STLFSI4" in t.splitlines()[0]:
         os.makedirs(OUT, exist_ok=True)
         open(path, "w").write(t)
@@ -94,6 +97,37 @@ def fsi():
         except Exception:
             pass
     return out
+
+
+def fred_browser(url):
+    """FRED 擋一般 curl；用系統的 Chrome（headless）下載。"""
+    try:
+        import asyncio
+        from playwright.async_api import async_playwright
+    except Exception as e:
+        log(f"playwright not available ({e})")
+        return None
+
+    async def go():
+        async with async_playwright() as p:
+            b = await p.chromium.launch(channel="chrome", headless=True)
+            ctx = await b.new_context(accept_downloads=True)
+            pg = await ctx.new_page()
+            async with pg.expect_download(timeout=60000) as di:
+                try:
+                    await pg.goto(url)
+                except Exception:
+                    pass
+            d = await di.value
+            path = await d.path()
+            txt = open(path).read()
+            await b.close()
+            return txt
+    try:
+        return asyncio.run(go())
+    except Exception as e:
+        log(f"FRED browser download failed: {e}")
+        return None
 
 
 def align(dates, series, ffill=False):
