@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2422">
+  <meta name="description" content="Kronos 開源 K 線預測模型在台股「第一根帶量大陽線」訊號上的回測結果。僅供參考，非投資建議。">
+  <title>Kronos AI K線模型台股回測</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #f4f1ea;
+      --bg-elev: #fffcf6;
+      --ink: #1c2422;
+      --muted: #5c6663;
+      --line: #ddd6c8;
+      --accent: #1f5f54;
+      --accent-soft: #e4efe9;
+      --atu: #157347;
+      --atu-bg: #e5f6ec;
+      --dtd: #b42318;
+      --dtd-bg: #fde8e6;
+      --danger: #b42318;
+      --ok: #157347;
+      --series2: #1b5f8a;
+      --shadow: 0 1px 2px rgba(28,36,34,.05), 0 8px 24px rgba(28,36,34,.06);
+      --radius: 14px;
+      --font: "Source Han Sans TC", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121614;
+        --bg-elev: #1c221f;
+        --ink: #eef3ef;
+        --muted: #9aa59f;
+        --line: #2c352f;
+        --accent: #8fd0c1;
+        --accent-soft: #1e332e;
+        --atu: #6ee7a8;
+        --atu-bg: #153325;
+        --dtd: #f0a09a;
+        --dtd-bg: #3a1b18;
+        --danger: #f0a09a;
+        --ok: #6ee7a8;
+        --series2: #7ec8f0;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.55;
+      font-size: 16px;
+      -webkit-text-size-adjust: 100%;
+    }
+    .wrap {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px 16px 64px;
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+    header.hero { margin-bottom: 22px; }
+    header.hero h1 {
+      font-size: 1.55rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+      margin: 0 0 8px;
+    }
+    .sitenav { margin: 0 0 12px; font-size: .92rem; color: var(--muted); }
+    .sitenav a { color: var(--accent); text-decoration: none; font-weight: 650; }
+    .sitenav a:hover { text-decoration: underline; }
+    .sitenav a[aria-current="page"] { color: var(--ink); pointer-events: none; }
+    .meta { color: var(--muted); font-size: .95rem; margin: 0 0 8px; }
+    .lede { margin: 0; max-width: 46rem; }
+    h2 {
+      font-size: 1.12rem;
+      margin: 0 0 10px;
+      font-weight: 700;
+    }
+    section.block {
+      background: var(--bg-elev);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px 16px 14px;
+      margin: 16px 0;
+      box-shadow: var(--shadow);
+    }
+    section.block p { margin: 0 0 10px; }
+    section.block p:last-child { margin-bottom: 0; }
+    section.block ul { margin: 0 0 10px; padding-left: 1.2em; }
+    section.block li { margin: 0 0 6px; }
+    a { color: var(--accent); }
+    .note { color: var(--muted); font-size: .92rem; margin: 10px 0 0; }
+    .tbl-wrap { overflow-x: auto; margin: 4px 0 8px; -webkit-overflow-scrolling: touch; }
+    table.results {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+      font-size: .92rem;
+    }
+    table.results th, table.results td {
+      text-align: right;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+    table.results th:first-child, table.results td:first-child,
+    table.results th.note-col, table.results td.note-col { text-align: left; }
+    table.results th {
+      font-weight: 650;
+      font-size: .78rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    table.results td.cond { font-weight: 650; white-space: nowrap; }
+    .num.pos { color: var(--ok); font-weight: 650; }
+    .num.neg { color: var(--danger); font-weight: 650; }
+    .chart-wrap { margin: 16px 0 4px; }
+    .chart-wrap h3 {
+      font-size: .95rem;
+      font-weight: 700;
+      margin: 0 0 8px;
+    }
+    .chart { width: 100%; height: auto; display: block; overflow: visible; }
+    .chart .grid { stroke: var(--line); stroke-width: 1; }
+    .chart .zero { stroke: var(--muted); stroke-width: 1.25; }
+    .chart .label, .chart .tick { fill: var(--muted); font-size: 11px; font-family: inherit; }
+    .chart .val { font-size: 11px; font-weight: 650; font-variant-numeric: tabular-nums; font-family: inherit; }
+    .chart .pos { fill: var(--atu); }
+    .chart .neg { fill: var(--dtd); }
+    .chart .base { fill: var(--accent); }
+    .chart .kron { fill: var(--series2); }
+    .chart .val.pos { fill: var(--ok); }
+    .chart .val.neg { fill: var(--danger); }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px 16px; font-size: .85rem; color: var(--muted); margin: 6px 0 0; }
+    .legend i {
+      display: inline-block; width: 12px; height: 12px; border-radius: 2px;
+      margin-right: 6px; vertical-align: -1px;
+    }
+    .legend .base { background: var(--accent); }
+    .legend .kron { background: var(--series2); }
+    .callout {
+      margin-top: 22px;
+      border-left: 3px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 0 12px 12px 0;
+      padding: 12px 14px;
+      font-weight: 650;
+    }
+    .verdict {
+      border-left: 3px solid var(--dtd);
+      background: var(--dtd-bg);
+      border-radius: 0 12px 12px 0;
+      padding: 12px 14px;
+      margin: 8px 0 0;
+      font-weight: 700;
+    }
+    footer {
+      margin-top: 22px;
+      color: var(--muted);
+      font-size: .85rem;
+    }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <nav class="sitenav" aria-label="網站導覽">
+        <a href="./">點位速查</a>
+        ·
+        <a href="kronos.html" aria-current="page">Kronos AI 台股回測</a>
+      </nav>
+      <h1>Kronos AI K線模型台股回測</h1>
+      <p class="meta">開源 K 線預測模型在台股訊號上的離線測試，僅供參考。</p>
+      <p class="lede">以下整理 Kronos 兩個版本在台股「第一根帶量大陽線」訊號上的回測結果。數字維持原測試報告，未另改參數。</p>
+    </header>
+
+    <section class="block">
+      <h2>模型是什麼</h2>
+      <p><a href="https://github.com/shiyu-coder/Kronos" target="_blank" rel="noopener">Kronos</a>（github.com/shiyu-coder/Kronos）是開源的 K 線預測基礎模型，測了 mini（4.1M 參數）和 small（24.7M）兩個版本。</p>
+    </section>
+
+    <section class="block">
+      <h2>回測設定</h2>
+      <p>5592 筆台股「第一根帶量大陽線」訊號（2021-06～2026-09），用訊號前 200 根日K預測未來 10 天，取 5 次抽樣平均；成本以 0.6% 計。</p>
+    </section>
+
+    <section class="block">
+      <h2>結果（mini）</h2>
+      <div class="tbl-wrap">
+        <table class="results">
+          <thead>
+            <tr>
+              <th>條件</th>
+              <th>樣本數</th>
+              <th>5 日上漲比例</th>
+              <th>10 日內碰到 +5%</th>
+              <th>5 日淨報酬</th>
+              <th class="note-col">備註</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="cond">全部訊號</td>
+              <td>5592</td>
+              <td>44.5%</td>
+              <td>48.9%</td>
+              <td class="num pos">+0.43%</td>
+              <td class="note-col">mini 全樣本基準</td>
+            </tr>
+            <tr>
+              <td class="cond">預測 5 日 &gt;0</td>
+              <td>593</td>
+              <td>43.3%</td>
+              <td>—</td>
+              <td class="num neg">−0.14%</td>
+              <td class="note-col"></td>
+            </tr>
+            <tr>
+              <td class="cond">預測 &gt;3%</td>
+              <td>169</td>
+              <td>45.6%</td>
+              <td>—</td>
+              <td class="num pos">+0.41%</td>
+              <td class="note-col">與隨機相比 p=0.42</td>
+            </tr>
+            <tr>
+              <td class="cond">預測前 20%</td>
+              <td>1119</td>
+              <td>42.3%</td>
+              <td>—</td>
+              <td class="num neg">−0.28%</td>
+              <td class="note-col">比隨機差，p=0.994</td>
+            </tr>
+            <tr>
+              <td class="cond">預測後 20%</td>
+              <td>1119</td>
+              <td>46.4%</td>
+              <td>—</td>
+              <td class="num pos">+1.09%</td>
+              <td class="note-col"></td>
+            </tr>
+            <tr>
+              <td class="cond">small 預測 &gt;0</td>
+              <td>79</td>
+              <td>34.2%</td>
+              <td>—</td>
+              <td class="num neg">−2.06%</td>
+              <td class="note-col">small 自 1800 筆隨機訊號中篩出</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">「預測前／後 20%」的樣本數由同一批 mini 結果依預測 5 日報酬分位計算（各 1119 筆），表中其餘數字與原報告相同。</p>
+
+      <div class="chart-wrap">
+        <h3>各預測分組的 5 日淨報酬</h3>
+        <svg class="chart" viewBox="0 0 680 300" role="img" aria-labelledby="c1-title c1-desc">
+          <title id="c1-title">各預測分組的五日淨報酬長條圖</title>
+          <desc id="c1-desc">全部訊號 +0.43%，預測大於 0 為 −0.14%，預測大於 3% 為 +0.41%，預測前 20% 為 −0.28%，預測後 20% 為 +1.09%，small 預測大於 0 為 −2.06%。</desc>
+          <line class="grid" x1="52" y1="49.9" x2="668" y2="49.9"/>
+          <line class="grid" x1="52" y1="159.4" x2="668" y2="159.4"/>
+          <line class="grid" x1="52" y1="214.1" x2="668" y2="214.1"/>
+          <line class="zero" x1="52" y1="104.6" x2="668" y2="104.6"/>
+          <text class="tick" x="48" y="53.9" text-anchor="end">+1%</text>
+          <text class="tick" x="48" y="108.6" text-anchor="end">0</text>
+          <text class="tick" x="48" y="163.4" text-anchor="end">−1%</text>
+          <text class="tick" x="48" y="218.1" text-anchor="end">−2%</text>
+          <rect class="pos" x="80.3" y="81.1" width="46" height="23.5" rx="3"/>
+          <rect class="neg" x="183.0" y="104.6" width="46" height="7.7" rx="3"/>
+          <rect class="pos" x="285.7" y="82.2" width="46" height="22.4" rx="3"/>
+          <rect class="neg" x="388.3" y="104.6" width="46" height="15.3" rx="3"/>
+          <rect class="pos" x="491.0" y="45.0" width="46" height="59.7" rx="3"/>
+          <rect class="neg" x="593.7" y="104.6" width="46" height="112.8" rx="3"/>
+          <text class="val pos" x="103.3" y="75.1" text-anchor="middle">+0.43%</text>
+          <text class="val neg" x="206.0" y="126.3" text-anchor="middle">−0.14%</text>
+          <text class="val pos" x="308.7" y="76.2" text-anchor="middle">+0.41%</text>
+          <text class="val neg" x="411.3" y="134.0" text-anchor="middle">−0.28%</text>
+          <text class="val pos" x="514.0" y="39.0" text-anchor="middle">+1.09%</text>
+          <text class="val neg" x="616.7" y="231.4" text-anchor="middle">−2.06%</text>
+          <text class="label" x="103.3" y="254" text-anchor="middle">全部訊號</text>
+          <text class="label" x="206.0" y="254" text-anchor="middle">預測&gt;0</text>
+          <text class="label" x="308.7" y="254" text-anchor="middle">預測&gt;3%</text>
+          <text class="label" x="411.3" y="254" text-anchor="middle">前 20%</text>
+          <text class="label" x="514.0" y="254" text-anchor="middle">後 20%</text>
+          <text class="label" x="616.7" y="254" text-anchor="middle">small 預測&gt;0</text>
+        </svg>
+      </div>
+
+      <div class="chart-wrap">
+        <h3>mini 各年度 5 日淨報酬（全部訊號 vs 預測 5 日 &gt;0）</h3>
+        <svg class="chart" viewBox="0 0 680 320" role="img" aria-labelledby="c2-title c2-desc">
+          <title id="c2-title">mini 模型各年度五日淨報酬對照圖</title>
+          <desc id="c2-desc">2021 年到 2026 年，全部訊號的五日淨報酬分別為 +0.64%、−0.94%、+0.61%、+0.49%、−0.11%、+1.45%；預測大於 0 時為 −0.44%、+0.22%、+0.45%、−1.01%、−1.09%、+1.57%。各年度表現不一致。</desc>
+          <line class="grid" x1="52" y1="36.0" x2="668" y2="36.0"/>
+          <line class="grid" x1="52" y1="95.4" x2="668" y2="95.4"/>
+          <line class="grid" x1="52" y1="214.3" x2="668" y2="214.3"/>
+          <line class="zero" x1="52" y1="154.9" x2="668" y2="154.9"/>
+          <text class="tick" x="48" y="40.0" text-anchor="end">+2%</text>
+          <text class="tick" x="48" y="99.4" text-anchor="end">+1%</text>
+          <text class="tick" x="48" y="158.9" text-anchor="end">0</text>
+          <text class="tick" x="48" y="218.3" text-anchor="end">−1%</text>
+          <rect class="base" x="78.3" y="116.8" width="22" height="38.0" rx="3"/>
+          <rect class="kron" x="106.3" y="154.9" width="22" height="26.2" rx="3"/>
+          <rect class="base" x="181.0" y="154.9" width="22" height="55.9" rx="3"/>
+          <rect class="kron" x="209.0" y="141.8" width="22" height="13.1" rx="3"/>
+          <rect class="base" x="283.7" y="118.6" width="22" height="36.3" rx="3"/>
+          <rect class="kron" x="311.7" y="128.1" width="22" height="26.8" rx="3"/>
+          <rect class="base" x="386.3" y="125.8" width="22" height="29.1" rx="3"/>
+          <rect class="kron" x="414.3" y="154.9" width="22" height="60.0" rx="3"/>
+          <rect class="base" x="489.0" y="154.9" width="22" height="6.5" rx="3"/>
+          <rect class="kron" x="517.0" y="154.9" width="22" height="64.8" rx="3"/>
+          <rect class="base" x="591.7" y="68.7" width="22" height="86.2" rx="3"/>
+          <rect class="kron" x="619.7" y="61.6" width="22" height="93.3" rx="3"/>
+          <text class="label" x="103.3" y="268" text-anchor="middle">2021</text>
+          <text class="label" x="206.0" y="268" text-anchor="middle">2022</text>
+          <text class="label" x="308.7" y="268" text-anchor="middle">2023</text>
+          <text class="label" x="411.3" y="268" text-anchor="middle">2024</text>
+          <text class="label" x="514.0" y="268" text-anchor="middle">2025</text>
+          <text class="label" x="616.7" y="268" text-anchor="middle">2026</text>
+        </svg>
+        <div class="legend">
+          <span><i class="base"></i>全部訊號</span>
+          <span><i class="kron"></i>預測 5 日 &gt;0</span>
+        </div>
+      </div>
+
+      <p>方向準確率 53～54%，但模型大多猜跌（猜漲只有 10.6% / 4.4%），全猜跌就有 55.5%；Spearman 相關約 −0.01～−0.03。各年度表現不一致。</p>
+      <p>速度：mini 在 8 核 CPU 約 0.24 秒一檔。</p>
+      <p>限制：未做除權息還原、未針對台股微調、訊號時間有重疊。</p>
+    </section>
+
+    <section class="block">
+      <h2>結論</h2>
+      <p class="verdict">不建議當過濾器。</p>
+    </section>
+
+    <section class="block">
+      <h2>與 e-Leader（好神通）選股策略的差別</h2>
+      <p>e-Leader 是可解釋、可回測的條件篩選；Kronos 是黑盒子的價格預測，無法放進 e-Leader 公式。進出場仍以自己的規則、停損和至少 1:2 的風報比為主。</p>
+    </section>
+
+    <div class="callout">非投資建議</div>
+    <footer>
+      回測為歷史樣本的離線測試，不代表未來結果。<a href="./">返回神秘指標點位速查</a>
+    </footer>
+  </div>
+</body>
+</html>

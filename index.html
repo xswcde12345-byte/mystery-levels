@@ -69,6 +69,10 @@
       padding-left: max(16px, env(safe-area-inset-left));
       padding-right: max(16px, env(safe-area-inset-right));
     }
+    .sitenav { margin: 0 0 12px; font-size: .92rem; color: var(--muted); }
+    .sitenav a { color: var(--accent); text-decoration: none; font-weight: 650; }
+    .sitenav a:hover { text-decoration: underline; }
+    .sitenav a[aria-current="page"] { color: var(--ink); pointer-events: none; }
     header.hero { margin-bottom: 22px; }
     header.hero h1 {
       font-size: 1.55rem;
@@ -344,6 +348,11 @@
 <body>
   <div class="wrap">
     <header class="hero">
+      <nav class="sitenav" aria-label="網站導覽">
+        <a href="./" aria-current="page">點位速查</a>
+        ·
+        <a href="kronos.html">Kronos AI 台股回測</a>
+      </nav>
       <h1>神秘指標 點位速查</h1>
       <p class="meta" id="meta">讀取資料中…</p>
       <p class="lede">點位用前一交易日的完整日 K 算出，當天開盤前就固定，盤中不必重算。本表用資料日收盤對照這組點位；同一組點位也可當隔天的參考價。</p>
@@ -397,7 +406,7 @@
     </section>
 
     <div class="callout">依公開歷史行情計算，僅供個人參考，非投資建議</div>
-    <footer>本站由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。日線圖使用 <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0）。</footer>
+    <footer>本站由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。日線圖使用 <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener">TradingView Lightweight Charts™</a>（Apache-2.0）。另見 <a href="kronos.html">Kronos AI K線模型台股回測</a>。</footer>
   </div>
   <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sh-title">
     <div class="sheet-in">
