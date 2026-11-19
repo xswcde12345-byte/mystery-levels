@@ -7,3 +7,4 @@ _site/
 *.bin
 cache_picks/
 data/picks/intraday.json
+cache_fear/

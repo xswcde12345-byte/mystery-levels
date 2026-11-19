@@ -56,6 +56,12 @@ def fetch_twse_px(d: dt.date):
                 rows[code] = [c, num(r[2]) or 0.0, ch, 1 if sign == "X" else 0, 1 if is_common(code, name) else 0]
     if not rows:
         return None, None
+    if taiex is None:   # 舊日期偶爾沒有附指數表：另查 type=IND
+        k = get(f"https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date={d:%Y%m%d}&type=IND&response=json", tries=2)
+        for t in (k or {}).get("tables", []):
+            for r in t.get("data", []):
+                if r and r[0].strip() == "發行量加權股價指數":
+                    taiex = num(r[1])
     return rows, taiex
 
 

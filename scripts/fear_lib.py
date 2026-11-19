@@ -107,21 +107,22 @@ def episodes(dates, score, close, thr=90.0, gap=60):
 
 
 def forward_stats(dates, score, close):
-    """依恐慌度區間統計之後 20/60/120 個交易日的報酬中位數與上漲比例（只算之後滿 120 天的日子）。"""
+    """依恐慌度區間統計之後 20/60/120 個交易日的報酬中位數與上漲比例（各期只算之後已滿該天數的日子）。"""
     s = np.asarray(score, dtype=float)
     c = np.asarray(close, dtype=float)
     n = len(c)
-    last_i = n - 121
     rows = []
     groups = [("所有交易日", -1, 1000)] + [(nm, lo, hi) for (lo, (hi, nm)) in zip([0, 25, 50, 75, 90], BANDS)]
     for nm, lo, hi in groups:
-        sel = [i for i in range(0, last_i + 1) if not np.isnan(s[i]) and (lo < 0 or (lo <= s[i] < hi))]
+        sel = [i for i in range(n) if not np.isnan(s[i]) and (lo < 0 or (lo <= s[i] < hi))]
         row = dict(band=nm, days=len(sel))
         for h in (20, 60, 120):
-            r = np.array([c[i + h] / c[i] - 1 for i in sel]) * 100 if sel else np.array([])
+            r = np.array([c[i + h] / c[i] - 1 for i in sel if i + h < n]) * 100
+            r = r[~np.isnan(r)]
             row[f"med{h}"] = None if not len(r) else round(float(np.median(r)), 1)
             row[f"up{h}"] = None if not len(r) else round(float((r > 0).mean() * 100))
         rows.append(row)
+    last_i = n - 121
     return rows, (dates[last_i] if last_i >= 0 else None), next((dates[i] for i in range(n) if not np.isnan(s[i])), None)
 
 
@@ -170,3 +171,89 @@ def breadth_day(C, last_vol, last_chg, last_xr, common_mask):
         low_day=round(low.sum() / have.sum() * 100, 4) if have.sum() else None, low_n=int(low.sum()), n_have=int(have.sum()),
         a200=round(above.sum() / ok200.sum() * 100, 4) if ok200.sum() else None, a200_n=int(above.sum()), a200_den=int(ok200.sum()),
     )
+
+
+# ---------------------------------------------------------------- 輸出
+def rnd(x, k=1):
+    if x is None:
+        return None
+    try:
+        x = float(x)
+    except Exception:
+        return None
+    return None if math.isnan(x) else round(x, k)
+
+
+def half_up(x):
+    return None if x is None or math.isnan(x) else int(math.floor(x + 0.5))
+
+
+def market_json(key, name, index_name, dates, close, comps, refs=(), asof_note="", stats_from=None):
+    """comps/refs: dict(key, name, desc, unit('%'/'pt'/'x'/'idx'), dec, values, sign(+1 越高越恐慌 / -1 越低越恐慌))."""
+    n = len(dates)
+    pcts = []
+    for c in comps:
+        v = np.asarray(c["values"], dtype=float)
+        c["pct"] = rolling_pct(v * c.get("sign", 1))
+        pcts.append(c["pct"])
+    for c in refs:
+        c["pct"] = rolling_pct(np.asarray(c["values"], dtype=float))
+    score = combine(pcts)
+    valid = [i for i in range(n) if not np.isnan(score[i])]
+    if not valid:
+        raise RuntimeError(f"{key}: no score")
+    L = valid[-1]
+
+    def at(k):
+        i = L - k
+        return None if i < 0 or np.isnan(score[i]) else dict(date=dates[i], score=half_up(score[i]), raw=rnd(score[i]))
+
+    def rows(cs):
+        out = []
+        for c in cs:
+            v, p = np.asarray(c["values"], dtype=float), c["pct"]
+            lo = max(0, L - 59)
+            out.append(dict(key=c["key"], name=c["name"], desc=c["desc"], unit=c.get("unit", ""), dec=c.get("dec", 1),
+                            value=rnd(v[L], 4), prev=rnd(v[L - 1], 4) if L else None,
+                            pct=half_up(p[L]), pct_prev=half_up(p[L - 1]) if L else None,
+                            pct_week=half_up(p[L - 5]) if L >= 5 else None,
+                            spark=[half_up(x) for x in p[lo:L + 1]]))
+        return out
+
+    # 歷史：近 5 年每天；更早每週取恐慌度最高那天
+    hist_d, hist_s, hist_c = [], [], []
+    cut = max(0, L - WIN)
+    i = valid[0]
+    week = None
+    buf = []
+    for i in range(valid[0], L + 1):
+        if np.isnan(score[i]):
+            continue
+        if i >= cut:
+            if buf:
+                j = max(buf, key=lambda t: score[t]); hist_d.append(dates[j]); hist_s.append(rnd(score[j])); hist_c.append(rnd(close[j], 2)); buf = []
+            hist_d.append(dates[i]); hist_s.append(rnd(score[i])); hist_c.append(rnd(close[i], 2))
+        else:
+            wk = dt_week(dates[i])
+            if week is not None and wk != week and buf:
+                j = max(buf, key=lambda t: score[t]); hist_d.append(dates[j]); hist_s.append(rnd(score[j])); hist_c.append(rnd(close[j], 2)); buf = []
+            week = wk
+            buf.append(i)
+    sc = score[:L + 1]
+    cl = np.asarray(close[:L + 1], dtype=float)
+    s0 = 0 if not stats_from else next((i for i, d in enumerate(dates) if d >= stats_from), 0)
+    stats, stats_end, stats_start = forward_stats(dates[s0:L + 1], sc[s0:], cl[s0:])
+    top = sorted(rows(comps), key=lambda r: -(r["pct"] or 0))[:3]
+    return dict(key=key, name=name, index_name=index_name, asof=dates[L], asof_note=asof_note,
+                score=half_up(score[L]), score_raw=rnd(score[L]), band=band(score[L]),
+                prev=at(1), week=at(5), month=at(21),
+                components=rows(comps), refs=rows(refs), top=[dict(name=t["name"], pct=t["pct"]) for t in top],
+                hist=dict(d=hist_d, score=hist_s, close=hist_c),
+                stats=stats, stats_start=stats_start, stats_end=stats_end,
+                episodes=[e for e in episodes(dates[:L + 1], sc, cl) if e["date"] >= (stats_from or "")])
+
+
+def dt_week(d: str):
+    import datetime as _dt
+    y, w, _ = _dt.date.fromisoformat(d).isocalendar()
+    return (y, w)

@@ -57,7 +57,38 @@ def decide_us() -> tuple[bool, str]:
     return False, f"US data already has {want}"
 
 
+def decide_fear() -> tuple[bool, str]:
+    """台股恐慌度：最近一個（已收盤的）交易日還沒寫進 data/fear/tw_ind.csv 就跑。"""
+    from datetime import timedelta
+    now = datetime.now(ZoneInfo("Asia/Taipei"))
+    d = now.date() if now.hour >= 14 else now.date() - timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    try:
+        last = open("data/fear/tw_ind.csv").read().strip().splitlines()[-1].split(",")[0]
+    except Exception as e:
+        return True, f"no tw_ind.csv ({e})"
+    if last >= d.isoformat():
+        return False, f"tw_ind.csv already has {last}"
+    return True, f"tw_ind.csv last {last}, want {d}"
+
+
+def decide_fear_us() -> tuple[bool, str]:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import us_calendar as uc
+    want = uc.last_completed_session().isoformat()
+    try:
+        have = min(json.load(open(f"data/fear/{k}.json", encoding="utf-8"))["asof"] for k in ("us", "sox"))
+    except Exception as e:
+        return True, f"no fear us/sox json ({e})"
+    return (have < want), f"fear us/sox asof {have}, want {want}"
+
+
 run, why = decide()
+run_fear, why_fear = decide_fear()
+run_fear_us, why_fear_us = decide_fear_us()
+print(f"gate: run_fear={str(run_fear).lower()} ({why_fear})")
+print(f"gate: run_fear_us={str(run_fear_us).lower()} ({why_fear_us})")
 run_us, why_us = decide_us()
 print(f"gate: run={str(run).lower()} ({why})")
 print(f"gate: run_us={str(run_us).lower()} ({why_us})")
@@ -66,4 +97,6 @@ if out:
     with open(out, "a") as f:
         f.write(f"run={str(run).lower()}\n")
         f.write(f"run_us={str(run_us).lower()}\n")
+        f.write(f"run_fear={str(run_fear).lower()}\n")
+        f.write(f"run_fear_us={str(run_fear_us).lower()}\n")
 sys.exit(0)

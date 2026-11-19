@@ -44,6 +44,8 @@ jobs:
           else
             echo "run=${{ github.event_name != 'push' }}" >> "$GITHUB_OUTPUT"
             echo "run_us=${{ github.event_name != 'push' }}" >> "$GITHUB_OUTPUT"
+            echo "run_fear=${{ github.event_name != 'push' }}" >> "$GITHUB_OUTPUT"
+            echo "run_fear_us=${{ github.event_name != 'push' }}" >> "$GITHUB_OUTPUT"
             echo "gate: ${{ github.event_name }} event"
           fi
 
@@ -129,6 +131,48 @@ jobs:
         continue-on-error: true
         run: python3 scripts/compute_us.py
 
+      # 市場恐慌度（台股：收盤＋融資資料公布後；美股/費半：美股收盤後）。失敗不影響其他步驟。
+      - name: Set up Python for fear index
+        id: pyfear
+        if: (steps.gate.outputs.run_fear == 'true' || steps.gate.outputs.run_fear_us == 'true') && steps.pysetup.outcome != 'success'
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore fear cache (daily closes, all securities)
+        if: steps.gate.outputs.run_fear == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: cache_fear
+          key: fear-${{ github.run_id }}
+          restore-keys: fear-
+
+      - name: Fear index - Taiwan
+        id: fear_tw
+        if: steps.gate.outputs.run_fear == 'true'
+        timeout-minutes: 20
+        continue-on-error: true
+        run: |
+          pip install -q numpy
+          python scripts/fear_tw.py
+
+      - name: Save fear cache
+        if: always() && steps.gate.outputs.run_fear == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: cache_fear
+          key: fear-${{ hashFiles('cache_fear/days/*') }}
+        continue-on-error: true
+
+      - name: Fear index - US large cap and SOX
+        if: steps.gate.outputs.run_fear_us == 'true'
+        timeout-minutes: 8
+        continue-on-error: true
+        run: |
+          pip install -q numpy
+          python scripts/fear_us.py
+
       - name: Save market data cache
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/cache/save@v4
@@ -139,11 +183,11 @@ jobs:
 
       - name: Commit data if changed
         id: commit
-        if: steps.gate.outputs.run == 'true' || steps.gate.outputs.run_us == 'true'
+        if: steps.gate.outputs.run == 'true' || steps.gate.outputs.run_us == 'true' || steps.gate.outputs.run_fear == 'true' || steps.gate.outputs.run_fear_us == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/latest.json data/days data/us.json data/us_hist data/picks
+          git add data/latest.json data/days data/us.json data/us_hist data/picks data/fear
           if git diff --staged --quiet; then
             echo "No data change (holiday, late publish, or already up to date)"
             echo "changed=false" >> "$GITHUB_OUTPUT"

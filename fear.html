@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2422">
+  <meta name="description" content="台股、美股大盤、費半恐慌度：每個指標在近 5 年的百分位平均，每天收盤後自動更新。僅供個人參考，非投資建議。">
+  <title>市場恐慌度｜台股・美股・費半</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #f4f1ea; --bg-elev: #fffcf6; --ink: #1c2422; --muted: #5c6663; --line: #ddd6c8;
+      --accent: #1f5f54; --accent-soft: #e4efe9; --up: #c62828; --down: #12805a;
+      --pick-bg: #e5f6ec; --warn-bg: #f8efd8; --warn: #9a6b12;
+      --shadow: 0 1px 2px rgba(28,36,34,.05), 0 8px 24px rgba(28,36,34,.06); --radius: 14px;
+      --font: "Source Han Sans TC", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121614; --bg-elev: #1c221f; --ink: #eef3ef; --muted: #9aa59f; --line: #2c352f;
+        --accent: #8fd0c1; --accent-soft: #1e332e; --up: #ff7a7a; --down: #5fd6a0;
+        --pick-bg: #153325; --warn-bg: #3a2d12; --warn: #f0c36e;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--ink); line-height: 1.55; font-size: 16px; -webkit-text-size-adjust: 100%; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 64px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+    .sitenav { margin: 0 0 12px; font-size: .92rem; color: var(--muted); display: flex; gap: 14px; }
+    .sitenav a { color: var(--accent); text-decoration: none; font-weight: 650; }
+    .sitenav a:hover { text-decoration: underline; }
+    .sitenav a[aria-current="page"] { color: var(--ink); pointer-events: none; }
+    h1 { font-size: 1.55rem; font-weight: 700; letter-spacing: .02em; margin: 0 0 8px; }
+    h2 { font-size: 1.12rem; margin: 0 0 10px; font-weight: 700; }
+    .meta { color: var(--muted); font-size: .95rem; margin: 0 0 8px; }
+    .lede { margin: 0; max-width: 46rem; }
+    section.block { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 16px 14px; margin: 16px 0; box-shadow: var(--shadow); }
+    section.block p { margin: 0 0 10px; }
+    section.block p:last-child { margin-bottom: 0; }
+    
+    .gauges { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 16px 0; }
+    .gauge { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); cursor: pointer; text-align: left; font: inherit; color: inherit; }
+    .gauge[aria-pressed="true"] { outline: 2px solid var(--accent); }
+    .gauge .t { color: var(--muted); font-size: .86rem; }
+    .gauge .big { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 6px; }
+    .gauge .big b { font-size: 2.6rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .gauge .big span { font-weight: 700; }
+    .gauge .chg { color: var(--muted); font-size: .86rem; margin-left: auto; }
+    .bar { position: relative; height: 10px; border-radius: 6px; background: linear-gradient(90deg, #5fa8d3 0 25%, #8cc084 25% 50%, #e6b450 50% 75%, #e07b39 75% 90%, #c62828 90% 100%); margin: 6px 0 2px; }
+    .bar i { position: absolute; top: -4px; width: 4px; height: 18px; border-radius: 2px; background: var(--ink); transform: translateX(-2px); }
+    .ticks { display: flex; justify-content: space-between; font-size: .7rem; color: var(--muted); position: relative; height: 14px; }
+    .ticks span { position: absolute; transform: translateX(-50%); }
+    .gauge .hist { color: var(--muted); font-size: .84rem; margin-top: 6px; }
+    .b-平靜 { color: #2f7fb0; } .b-正常 { color: #4e8f46; } .b-緊張 { color: #b07d12; } .b-恐慌 { color: #d0621f; } .b-極度恐慌 { color: #c62828; }
+    @media (prefers-color-scheme: dark) { .b-平靜 { color: #7cc0ea; } .b-正常 { color: #9fd596; } .b-緊張 { color: #f0c36e; } .b-恐慌 { color: #f39a5c; } .b-極度恐慌 { color: #ff7a7a; } }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 4px; }
+    .tabs button { font: inherit; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 650; }
+    .tabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--bg-elev); }
+    .tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; }
+    th, td { padding: 8px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; font-size: .78rem; background: var(--bg-elev); }
+    th:first-child, td:first-child { text-align: left; }
+    td.desc, th.desc { text-align: left; white-space: normal; color: var(--muted); font-size: .82rem; min-width: 220px; }
+    td.nm { font-weight: 650; white-space: normal; min-width: 150px; }
+    .pct { display: inline-block; min-width: 2.4em; padding: 1px 6px; border-radius: 6px; font-weight: 700; text-align: center; }
+    .up { color: var(--up); } .down { color: var(--down); } .na { color: var(--muted); }
+    .note { color: var(--muted); font-size: .88rem; }
+    .plain { background: var(--bg); border-left: 3px solid var(--accent); padding: 8px 12px; border-radius: 6px; margin-top: 10px; font-size: .92rem; }
+    .plain b { color: var(--accent); }
+    .chartbox { position: relative; }
+    .chartbox svg { width: 100%; height: auto; display: block; }
+    .chartbox .tip { position: absolute; pointer-events: none; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; font-size: .8rem; box-shadow: var(--shadow); white-space: nowrap; display: none; }
+    .rng { display: flex; gap: 6px; margin: 4px 0 8px; flex-wrap: wrap; align-items: center; }
+    .rng button { font: inherit; font-size: .85rem; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 8px; padding: 3px 10px; cursor: pointer; }
+    .rng button[aria-pressed="true"] { border-color: var(--ink); font-weight: 700; }
+    .rng .sum { color: var(--muted); font-size: .85rem; margin-left: 6px; }
+    .callout { margin: 16px 0; padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); font-weight: 650; }
+    footer { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+    a { color: var(--accent); }
+    .err { color: var(--up); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <nav class="sitenav" aria-label="網站導覽">
+        <a href="./">點位速查</a>
+        <a href="picks.html">選股回查</a>
+        <a href="fear.html" aria-current="page">恐慌指數</a>
+      </nav>
+      <h1>市場恐慌度</h1>
+      <p class="meta">每天收盤後更新 · 0 = 近 5 年最平靜、100 = 近 5 年最恐慌 · 只寫事實與歷史統計，不構成投資建議</p>
+    </header>
+
+    <div class="gauges" id="gauges"><p class="note">讀取資料中…</p></div>
+
+    <section class="block" id="comp">
+      <div class="tabs" id="tabs" role="group" aria-label="切換市場"></div>
+      <h2 id="comp-title" style="margin-top:10px">怎麼算出來的</h2>
+      <p class="meta" id="comp-meta"></p>
+      <p id="comp-sum"></p>
+      <h2 style="font-size:1rem;margin-top:14px">計入總分</h2>
+      <div class="tbl"><table id="comp-tbl"></table></div>
+      <div id="ref-wrap" hidden>
+        <h2 style="font-size:1rem;margin-top:16px">參考（不計入總分）</h2>
+        <div class="tbl"><table id="ref-tbl"></table></div>
+      </div>
+      <div class="plain"><b>白話</b>　每個指標先算出「現在在近 5 年（資料不到 5 年就用全部）排第幾百分位」，並轉成越高越恐慌 —— 例如站上 200 日線的比例、融資維持率、離高點的距離、近期漲跌是越低越恐慌，所以倒過來算。總分 = 計入總分那幾項的平均，至少要有 4 項。「前一日」是前一個有資料的交易日；位置變化是恐慌位置跟前一日相差幾個百分位，正的代表比前一日更恐慌。「參考」那幾列的位置是數值本身的位置，不是恐慌方向。</div>
+    </section>
+
+    <section class="block" id="trend">
+      <h2 id="trend-title">恐慌度與指數走勢</h2>
+      <div class="rng" id="rng"></div>
+      <div class="chartbox" id="chart"></div>
+      <div class="plain"><b>白話</b>　上面是指數（對數刻度，同樣的漲跌幅畫起來一樣高），底色塗橘、塗紅的是恐慌度 75 以上、90 以上的日子；紅點是每一次極度恐慌（恐慌度第一次到 90 以上）。下面是恐慌度本身，顏色照五段分。恐慌度衝進 90 以上的日子，多半落在急跌的尾段，但也有衝高之後指數繼續跌的時候。五年以前的資料每週取恐慌度最高那一天畫。</div>
+    </section>
+
+    <section class="block" id="hist">
+      <h2 id="stat-title">過去恐慌度高的時候，指數之後怎麼走</h2>
+      <p class="meta" id="stat-meta"></p>
+      <div class="tbl"><table id="stat-tbl"></table></div>
+      <h2 style="font-size:1rem;margin-top:16px">歷次極度恐慌（恐慌度第一次到 90 以上）</h2>
+      <div class="tbl"><table id="ep-tbl"></table></div>
+      <div class="plain"><b>白話</b>　報酬是指數從那天收盤算到之後第 20、60、120 個交易日；中位數 = 一半的日子比它好、一半比它差。上漲比例 = 之後是漲的日子占幾成。同一段恐慌期的日子會重複計算，天數多不代表次數多；「歷次」表一段恐慌只算第一天（前 60 個交易日內已到過 90 的不重複算）。「120 天內最多再跌」是之後 120 個交易日內最低收盤比當天低多少。這些是過去的統計，不代表之後一定一樣。</div>
+    </section>
+
+    <section class="block">
+      <h2>資料來源與限制</h2>
+      <ul class="note" style="padding-left:1.2em;margin:0">
+        <li>台股：證交所每日收盤行情（全部證券，含 ETF）與加權指數、櫃買中心上櫃收盤行情、證交所與櫃買中心融資融券餘額。價格未還原權息；跌停以前一日參考價 ×0.9 依升降單位計算。台股資料從 2015 年 6 月起算（漲跌幅限制 10% 之後），2021 年以前的百分位能比較的歷史不到 5 年，那幾年的分數和「過去怎麼走」只能粗略參考，樣本也比美股短。跟原始網站相比，台股總分平均差約 1.4 分。</li>
+        <li>美股大盤：SPY 還原權息收盤（Yahoo Finance）、Cboe 官方 VIX 與 3 個月 VIX、聖路易聯準銀行金融壓力指數（FRED，每週公布）。</li>
+        <li>費半：費城半導體指數、那斯達克綜合指數（Yahoo Finance）、Cboe VXN。</li>
+        <li>台指 VIX、選擇權 Put/Call 比、散戶多空比本頁未收錄。</li>
+      </ul>
+    </section>
+
+    <div class="callout">非投資建議。依公開歷史資料計算，僅供個人參考。</div>
+    <footer>本頁由 GitHub Actions 在台股收盤後與美股收盤後自動更新，不使用其他計算額度。<a href="./">回點位速查</a></footer>
+  </div>
+
+<script>
+const MK = [
+  {key:'tw', label:'台股', file:'data/fear/tw.json'},
+  {key:'us', label:'美股大盤', file:'data/fear/us.json'},
+  {key:'sox', label:'費半', file:'data/fear/sox.json'},
+];
+const D = {};
+let cur = (location.hash || '').replace('#','');
+let range = '3y';
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const md = d => { const [y,m,dd] = d.split('-'); return `${+m}/${+dd}`; };
+const ymd = d => { const [y,m,dd] = d.split('-'); return `${y}/${+m}/${+dd}`; };
+const sgn = (x, dec=1, unit='') => x == null ? '<span class="na">–</span>' : (x > 0 ? '+' : x < 0 ? '−' : '') + Math.abs(x).toFixed(dec) + unit;
+const BCOL = {'平靜':'#5fa8d3','正常':'#8cc084','緊張':'#e6b450','恐慌':'#e07b39','極度恐慌':'#c62828'};
+const bandOf = s => s < 25 ? '平靜' : s < 50 ? '正常' : s < 75 ? '緊張' : s < 90 ? '恐慌' : '極度恐慌';
+function fmtVal(v, c) {
+  if (v == null) return '<span class="na">–</span>';
+  const dec = c.dec ?? 1;
+  const neg = v < 0 ? '−' : (c.key === 'vxnvix' && v > 0 ? '+' : '');
+  const a = Math.abs(v).toFixed(dec);
+  if (c.unit === '%') return neg + a + '%';
+  if (c.unit === 'pt' && c.key === 'vxnvix') return neg + a + ' 點';
+  return neg + a;
+}
+function pctCell(p) {
+  if (p == null) return '<span class="na">–</span>';
+  const col = BCOL[bandOf(p)];
+  return `<span class="pct" style="background:${col}22;color:${col}">${p}</span>`;
+}
+function dCell(a, b) {
+  if (a == null || b == null) return '<span class="na">–</span>';
+  const d = a - b;
+  return d === 0 ? '持平' : (d > 0 ? '<span class="up">+' + d + '</span>' : '<span class="down">−' + (-d) + '</span>');
+}
+function spark(arr) {
+  const v = arr.filter(x => x != null); if (v.length < 2) return '';
+  const w = 90, h = 24, n = arr.length;
+  let p = '';
+  arr.forEach((x, i) => { if (x == null) return; p += (p ? 'L' : 'M') + (i/(n-1)*w).toFixed(1) + ',' + (h - x/100*h).toFixed(1); });
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true"><line x1="0" x2="${w}" y1="${h-0.9*h}" y2="${h-0.9*h}" stroke="#c62828" stroke-opacity=".35" stroke-dasharray="2 2"/><path d="${p}" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
+}
+function gauges() {
+  $('gauges').innerHTML = MK.map(m => {
+    const j = D[m.key];
+    if (!j) return `<div class="gauge"><div class="t">${m.label}</div><p class="err">資料讀取失敗</p></div>`;
+    const ch = j.prev ? j.score - j.prev.score : null;
+    const chs = ch == null ? '' : ch === 0 ? '比前一日 持平' : (ch > 0 ? `比前一日 ▲${ch}` : `比前一日 ▼${-ch}`);
+    const h = [j.prev && `前一日(${md(j.prev.date)}) ${j.prev.score}`, j.week && `一週前 ${j.week.score}`, j.month && `一個月前 ${j.month.score}`].filter(Boolean).join(' · ');
+    return `<button type="button" class="gauge" data-k="${m.key}" aria-pressed="${m.key===cur}">
+      <div class="t">${esc(j.name)} · ${ymd(j.asof)} ${esc(j.asof_note)}</div>
+      <div class="big"><b class="b-${j.band}">${j.score}</b><span class="b-${j.band}">${j.band}</span><span class="chg">${chs}</span></div>
+      <div class="bar"><i style="left:${Math.max(0,Math.min(100,j.score_raw))}%"></i></div>
+      <div class="ticks"><span style="left:0%;transform:none">0</span><span style="left:25%">25</span><span style="left:50%">50</span><span style="left:75%">75</span><span style="left:90%">90</span><span style="left:100%;transform:translateX(-100%)">100</span></div>
+      <div class="hist">${h}</div></button>`;
+  }).join('');
+  document.querySelectorAll('.gauge[data-k]').forEach(b => b.onclick = () => select(b.dataset.k));
+}
+function tableRows(rows, isRef) {
+  const head = `<tr><th>指標</th><th>現在</th><th>前一日</th><th>${isRef ? '數值位置' : '恐慌位置'}</th><th>位置變化</th><th>一週前</th><th>近 60 天</th><th class="desc">怎麼看</th></tr>`;
+  return head + rows.map(r => `<tr><td class="nm">${esc(r.name)}</td><td>${fmtVal(r.value, r)}</td><td>${fmtVal(r.prev, r)}</td>
+    <td>${pctCell(r.pct)}</td><td>${dCell(r.pct, r.pct_prev)}</td><td>${r.pct_week ?? '–'}</td><td>${spark(r.spark)}</td><td class="desc">${esc(r.desc)}</td></tr>`).join('');
+}
+function select(k) {
+  if (!D[k]) k = MK.find(m => D[m.key])?.key; if (!k) return;
+  cur = k; history.replaceState(null, '', '#' + k);
+  const j = D[k];
+  document.querySelectorAll('.gauge[data-k]').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === k));
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-pressed', b.dataset.k === k));
+  $('comp-title').textContent = j.name + '怎麼算出來的';
+  $('comp-meta').textContent = '資料到 ' + ymd(j.asof);
+  const top = j.top.map(t => `${t.name.replace(/\(.*\)/, '')}(第 ${t.pct} 百分位)`).join('、');
+  $('comp-sum').innerHTML = `總分 <b>${j.score}</b>（${j.band}）${j.prev ? '，前一日 ' + j.prev.score : ''}。拉最高的是${esc(top)}。`;
+  $('comp-tbl').innerHTML = tableRows(j.components, false);
+  $('ref-wrap').hidden = !j.refs.length;
+  if (j.refs.length) $('ref-tbl').innerHTML = tableRows(j.refs, true);
+  $('trend-title').textContent = '恐慌度與' + j.index_name + '走勢';
+  $('stat-title').textContent = '過去恐慌度高的時候，' + j.index_name + '之後怎麼走';
+  $('stat-meta').textContent = `依恐慌度區間（${j.stats_start.slice(0,4)} 年起，120 天報酬算到 ${ymd(j.stats_end)}）`;
+  const th = '<tr><th>恐慌度</th><th>天數</th><th>之後 20 天<br>中位數</th><th>上漲比例</th><th>之後 60 天<br>中位數</th><th>上漲比例</th><th>之後 120 天<br>中位數</th><th>上漲比例</th></tr>';
+  $('stat-tbl').innerHTML = th + j.stats.map(r => `<tr><td class="${r.band==='所有交易日'?'':'b-'+r.band}" style="font-weight:650">${r.band}</td><td>${r.days.toLocaleString()}</td>
+    ${[20,60,120].map(h => `<td>${sgn(r['med'+h],1,'%')}</td><td>${r['up'+h]==null?'–':r['up'+h]+'%'}</td>`).join('')}</tr>`).join('');
+  const eh = '<tr><th>日期</th><th>恐慌度</th><th>當時離一年高點</th><th>之後 120 天內<br>最多再跌</th><th>之後 20 天</th><th>之後 60 天</th><th>之後 120 天</th></tr>';
+  $('ep-tbl').innerHTML = eh + (j.episodes.length ? j.episodes.map(e => `<tr><td>${ymd(e.date)}</td><td class="b-極度恐慌" style="font-weight:700">${e.score}</td><td>${sgn(e.off_high,1,'%')}</td>
+    <td>${e.max_dd_120 == null ? '–' : e.max_dd_120 === 0 ? '沒有再跌' : sgn(e.max_dd_120,1,'%') + (e.partial ? '<span class="na">（未滿）</span>' : '')}</td>
+    <td>${sgn(e.r20,1,'%')}</td><td>${sgn(e.r60,1,'%')}</td><td>${sgn(e.r120,1,'%')}</td></tr>`).join('') : '<tr><td colspan="7" class="na">這段期間沒有</td></tr>');
+  chart();
+}
+function chart() {
+  const j = D[cur]; const H = j.hist; const n = H.d.length;
+  const last = H.d[n-1];
+  const cut = {'1y':1,'3y':3,'5y':5}[range];
+  let i0 = 0;
+  if (cut) { const t = new Date(last); t.setFullYear(t.getFullYear() - cut); const s = t.toISOString().slice(0,10); i0 = H.d.findIndex(d => d >= s); if (i0 < 0) i0 = 0; }
+  const d = H.d.slice(i0), sc = H.score.slice(i0), cl = H.close.slice(i0); const m = d.length;
+  const W = 1000, H1 = 250, H2 = 130, G = 26, PL = 56, PR = 12, PT = 10;
+  const X = i => PL + (m <= 1 ? 0 : i / (m - 1) * (W - PL - PR));
+  const lc = cl.map(v => Math.log(v)); const lo = Math.min(...lc), hi = Math.max(...lc);
+  const Y1 = v => PT + (hi - Math.log(v)) / ((hi - lo) || 1) * H1;
+  const y2top = PT + H1 + G; const Y2 = s => y2top + (100 - s) / 100 * H2;
+  let s = `<svg viewBox="0 0 ${W} ${PT+H1+G+H2+24}" role="img" aria-label="恐慌度與指數走勢圖">`;
+  // shading
+  const bw = (W - PL - PR) / Math.max(1, m - 1);
+  for (let i = 0; i < m; i++) if (sc[i] >= 75) s += `<rect x="${(X(i)-bw/2).toFixed(1)}" y="${PT}" width="${Math.max(bw,1).toFixed(2)}" height="${H1}" fill="${sc[i]>=90?'#c62828':'#e07b39'}" fill-opacity="${sc[i]>=90?.22:.13}"/>`;
+  // index axis
+  const step = (() => { const r = Math.exp(hi) - Math.exp(lo); const raw = r / 4; const p = Math.pow(10, Math.floor(Math.log10(raw))); return [1,2,2.5,5,10].map(k=>k*p).find(k => r / k <= 5) || p*10; })();
+  for (let v = Math.ceil(Math.exp(lo)/step)*step; v <= Math.exp(hi); v += step) { const y = Y1(v); s += `<line x1="${PL}" x2="${W-PR}" y1="${y}" y2="${y}" stroke="currentColor" stroke-opacity=".1"/><text x="${PL-6}" y="${y+4}" text-anchor="end" font-size="12" fill="currentColor" fill-opacity=".6">${v.toLocaleString()}</text>`; }
+  s += `<path d="${cl.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Y1(v).toFixed(1)).join('')}" fill="none" stroke="currentColor" stroke-width="1.5"/>`;
+  // episodes
+  j.episodes.forEach(e => { const i = d.indexOf(e.date); if (i >= 0) s += `<circle cx="${X(i)}" cy="${Y1(cl[i])}" r="4.5" fill="#c62828" stroke="#fff" stroke-width="1"/>`; });
+  // score panel
+  [[0,25],[25,50],[50,75],[75,90],[90,100]].forEach(([a,b]) => s += `<rect x="${PL}" y="${Y2(b)}" width="${W-PL-PR}" height="${Y2(a)-Y2(b)}" fill="${BCOL[bandOf(a)]}" fill-opacity=".08"/>`);
+  [0,25,50,75,90,100].forEach(v => s += `<text x="${PL-6}" y="${Y2(v)+4}" text-anchor="end" font-size="11" fill="currentColor" fill-opacity=".6">${v}</text>`);
+  for (let i = 1; i < m; i++) s += `<line x1="${X(i-1).toFixed(1)}" y1="${Y2(sc[i-1]).toFixed(1)}" x2="${X(i).toFixed(1)}" y2="${Y2(sc[i]).toFixed(1)}" stroke="${BCOL[bandOf(sc[i])]}" stroke-width="1.6"/>`;
+  // x labels
+  const yrs = []; let py = '';
+  d.forEach((x, i) => { const key = (m > 600 ? x.slice(0,4) : x.slice(0,7)); if (key !== py) { py = key; yrs.push([i, key]); } });
+  const every = Math.ceil(yrs.length / 10);
+  yrs.forEach(([i,k], q) => { if (q % every === 0 && i > 0) s += `<text x="${X(i)}" y="${y2top+H2+18}" text-anchor="middle" font-size="11" fill="currentColor" fill-opacity=".6">${m > 600 ? k : k.slice(2).replace('-','/')}</text>`; });
+  s += `<line id="cx" x1="0" x2="0" y1="${PT}" y2="${y2top+H2}" stroke="currentColor" stroke-opacity=".4" visibility="hidden"/>`;
+  s += `<rect id="hit" x="${PL}" y="${PT}" width="${W-PL-PR}" height="${H1+G+H2}" fill="transparent"/></svg><div class="tip" id="tip"></div>`;
+  $('chart').innerHTML = s;
+  const chg = ((cl[m-1]/cl[0]-1)*100);
+  const nEp = j.episodes.filter(e => e.date >= d[0]).length;
+  $('rng').innerHTML = ['1y','3y','5y','all'].map(r => `<button type="button" data-r="${r}" aria-pressed="${r===range}">${{'1y':'1 年','3y':'3 年','5y':'5 年','all':'全部'}[r]}</button>`).join('') +
+    `<span class="sum">${ymd(d[0]).slice(0,7)} 起：${esc(j.index_name)} ${sgn(chg,1,'%')} · 極度恐慌 ${nEp} 次 · 現在 ${j.score} ${j.band}</span>`;
+  document.querySelectorAll('#rng button').forEach(b => b.onclick = () => { range = b.dataset.r; chart(); });
+  const svg = $('chart').querySelector('svg'), tip = $('tip'), cx = $('cx');
+  const move = ev => {
+    const r = svg.getBoundingClientRect(); const px = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left;
+    const xs = px / r.width * W; let i = Math.round((xs - PL) / ((W - PL - PR) / Math.max(1, m - 1))); i = Math.max(0, Math.min(m - 1, i));
+    cx.setAttribute('x1', X(i)); cx.setAttribute('x2', X(i)); cx.setAttribute('visibility', 'visible');
+    const full = j.hist.d.indexOf(d[i]); const f = (k) => { const t = full + k; return t < j.hist.d.length && full >= j.hist.d.length - 1300 ? sgn((j.hist.close[t]/cl[i]-1)*100,1,'%') : '–'; };
+    tip.innerHTML = `<b>${ymd(d[i])}</b><br>${esc(j.index_name)} ${cl[i].toLocaleString()}<br>恐慌度 <b class="b-${bandOf(sc[i])}">${Math.round(sc[i])}</b> ${bandOf(sc[i])}<br>之後 60 天 ${f(60)}`;
+    tip.style.display = 'block'; const tx = X(i) / W * r.width; tip.style.left = Math.min(r.width - 170, Math.max(0, tx + 10)) + 'px'; tip.style.top = '10px';
+  };
+  svg.addEventListener('mousemove', move); svg.addEventListener('touchmove', move, {passive: true});
+  svg.addEventListener('mouseleave', () => { tip.style.display = 'none'; cx.setAttribute('visibility', 'hidden'); });
+}
+(async () => {
+  await Promise.all(MK.map(async m => { try { const r = await fetch(m.file, {cache: 'no-cache'}); if (r.ok) D[m.key] = await r.json(); } catch (e) {} }));
+  $('tabs').innerHTML = MK.map(m => `<button type="button" data-k="${m.key}">${m.label}</button>`).join('');
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => select(b.dataset.k));
+  if (!D[cur]) cur = 'tw';
+  gauges(); select(cur);
+})();
+</script>
+</body>
+</html>
