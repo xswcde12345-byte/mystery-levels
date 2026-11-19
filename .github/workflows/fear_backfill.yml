@@ -1,0 +1,34 @@
+name: Fear backfill (one-off)
+
+# 一次性回補恐慌度歷史資料（官方日資料），分段平行抓取後上傳成 artifact。只能手動觸發。
+on:
+  workflow_dispatch:
+    inputs:
+      chunks:
+        description: "JSON list of [start,end] pairs"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        rng: ${{ fromJSON(github.event.inputs.chunks) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch
+        run: |
+          pip install -q numpy
+          python3 scripts/fear_fetch.py "${{ matrix.rng[0] }}" "${{ matrix.rng[1] }}" out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fear-${{ matrix.rng[0] }}
+          path: out
+          retention-days: 7
