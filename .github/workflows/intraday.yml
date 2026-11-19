@@ -1,0 +1,118 @@
+name: Intraday picks
+
+# 選股回查「盤中」：台北時間週一至週五 09:07–13:37，約每 15 分鐘一次（UTC = 台北 − 8 小時）。
+# 獨立於點位更新流程：只掃描第一根大陽線、對新入選者跑 Kronos、重新部署網站（含盤中名單）。
+# 失敗不會改動點位資料；收盤後主流程部署的網站不含盤中名單，等於由收盤版取代。
+on:
+  schedule:
+    - cron: "7,22,37,52 1-4 * * 1-5"   # 台北 09:07 … 12:52
+    - cron: "7,22,37 5 * * 1-5"        # 台北 13:07, 13:22, 13:37
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 與主流程共用，避免兩邊同時部署 Pages
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  intraday:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      PREV_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/picks/intraday.json
+    steps:
+      - name: Gate (trading day and hours, no checkout)
+        id: gate
+        run: |
+          NOW=$(TZ=Asia/Taipei date +%H%M); TODAY=$(TZ=Asia/Taipei date +%Y%m%d); DOW=$(TZ=Asia/Taipei date +%u)
+          if [ "$DOW" -ge 6 ] || [ "$NOW" -lt 0900 ] || [ "$NOW" -gt 1350 ]; then
+            echo "gate: outside trading hours ($DOW $NOW)"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          SESS=$(curl -s -m 25 -A "Mozilla/5.0" -H "Referer: https://mis.twse.com.tw/stock/index.jsp" \
+            "https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_2330.tw&json=1&delay=0&_=$(date +%s)000" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['msgArray'][0].get('d',''))" 2>/dev/null || true)
+          echo "gate: MIS session '$SESS', today $TODAY"
+          if [ "$SESS" = "$TODAY" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Checkout
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Restore picks cache (daily bars)
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: cache_picks
+          key: picks-intraday-${{ github.run_id }}
+          restore-keys: picks-
+
+      - name: Set up Python
+        id: pysetup
+        if: steps.gate.outputs.run == 'true'
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/picks_requirements.txt
+
+      - name: Intraday scan (live quotes)
+        id: scan
+        if: steps.pysetup.outcome == 'success'
+        timeout-minutes: 6
+        continue-on-error: true
+        run: |
+          pip install -q numpy
+          python scripts/picks_intraday.py
+
+      - name: Cache Hugging Face model
+        if: steps.scan.outputs.need_kronos == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-kronos-mini-v1
+
+      - name: Kronos mini on CPU (non-fatal)
+        if: steps.scan.outputs.need_kronos == 'true'
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          KRONOS_COMMIT: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
+          KRONOS_DIR: ${{ github.workspace }}/kronos_src
+          HF_HUB_DISABLE_PROGRESS_BARS: "1"
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r scripts/picks_requirements.txt
+          mkdir -p "$KRONOS_DIR" && cd "$KRONOS_DIR"
+          git init -q . && git remote add origin https://github.com/shiyu-coder/Kronos.git
+          git fetch -q --depth 1 origin "$KRONOS_COMMIT" && git checkout -q FETCH_HEAD
+          cd "$GITHUB_WORKSPACE"
+          python scripts/picks_intraday.py --kronos
+
+      - name: Stage site
+        id: stage
+        if: steps.scan.outputs.ran == 'true'
+        run: bash scripts/stage_site.sh
+
+      - name: Configure Pages
+        if: steps.stage.outcome == 'success'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: steps.stage.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        if: steps.stage.outcome == 'success'
+        uses: actions/deploy-pages@v4

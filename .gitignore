@@ -6,3 +6,4 @@ _site/
 .DS_Store
 *.bin
 cache_picks/
+data/picks/intraday.json

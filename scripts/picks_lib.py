@@ -223,18 +223,18 @@ def prune_days(keep: int = KEEP_DAYS) -> None:
         os.remove(day_path(d))
 
 
-def update_days(today: dt.date, max_back: int = 12) -> list[str]:
-    """補抓缺的交易日，最近 3 個已有日一併重抓（交易所晚間會修正數字）。回傳這次有寫入的日期。"""
+def update_days(today: dt.date, max_back: int = 12, refetch_days: int = 3) -> list[str]:
+    """補抓缺的交易日，最近 refetch_days 天內的已有日一併重抓（交易所晚間會修正數字；盤中掃描傳 0）。回傳這次有寫入的日期。"""
     ds = cached_dates()
     last = dt.datetime.strptime(ds[-1], "%Y%m%d").date() if ds else today - dt.timedelta(days=max_back)
-    start = max(last - dt.timedelta(days=2), today - dt.timedelta(days=max_back + 40))
+    start = max(last - dt.timedelta(days=max(0, refetch_days - 1)), today - dt.timedelta(days=max_back + 40))
     wrote = []
     d = start
     while d <= today:
         if d.weekday() < 5:
             key = f"{d:%Y%m%d}"
             old = load_day(key)
-            recent = (today - d).days <= 3
+            recent = refetch_days > 0 and (today - d).days <= refetch_days
             if old is None or not old.get("tpok") or recent:
                 tw = fetch_twse(d)
                 if tw:                                    # 有交易
@@ -388,3 +388,31 @@ def outcome(a, t, n_dates):
             out["mx"] = round((float(np.nanmax(cs)) / c0 - 1) * 100, 2)
             out["mh"] = round((float(np.nanmax(hs)) / c0 - 1) * 100, 2)
     return out
+
+
+def prefilter(a, t, p=P):
+    """盤中用：只看 t 之前（不含今日）的條件，通過者才需要查即時報價。回傳 dict 或 None。
+    與收盤條件相同，另加：箱頂 < 昨收 x 1.10（漲停內可突破）；前 20 日未觸發過。"""
+    if t < NEED - 1:
+        return None
+    c, v = a["c"], a["v"]
+    W = slice(t - NEED + 1, t)
+    if np.isnan(c[W]).any() or not (v[W] > 0).all():
+        return None
+    base = float(v[t - 20:t].mean())
+    if base < p["MIN_BASE"] or float(v[t - 10:t].max()) >= p["PRIOR_SPIKE"] * base:
+        return None
+    cl = c[t - 20:t]
+    ma = [float(cl[-5:].mean()), float(cl[-10:].mean()), float(cl.mean())]
+    if max(ma) / min(ma) - 1 > p["CONV"]:
+        return None
+    bx = close_top_box(a, t, p)
+    if not bx or len(bx["touches"]) < p["MIN_TOUCH"]:
+        return None
+    pc = float(c[t - 1])
+    if bx["top"] >= pc * 1.10:
+        return None
+    for k in range(1, p["DEDUP"] + 1):
+        if t - k >= NEED - 1 and check(a, t - k, p) is not None:
+            return None
+    return dict(base=base, pc=pc, box=bx)

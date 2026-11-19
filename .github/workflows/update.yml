@@ -161,16 +161,7 @@ jobs:
       - name: Stage site
         id: stage
         if: github.event_name != 'schedule' || steps.commit.outputs.changed == 'true'
-        run: |
-          mkdir -p _site/data
-          cp index.html picks.html _site/
-          mkdir -p _site/data/picks
-          cp data/picks/*.json _site/data/picks/
-          cp data/latest.json _site/data/
-          python3 scripts/build_hist.py _site/data/hist
-          if [ -f data/us.json ]; then cp data/us.json _site/data/; cp data/us_hist/*.json _site/data/hist/; fi
-          du -sh _site/data/hist
-          touch _site/.nojekyll
+        run: bash scripts/stage_site.sh
 
       - name: Configure Pages
         if: steps.stage.outcome == 'success'
