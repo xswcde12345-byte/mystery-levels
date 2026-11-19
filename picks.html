@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c2422">
+  <meta name="description" content="選一個日期，查看「第一根大陽線」與 Kronos 當天選出的台股，以及之後的實際走勢。僅供個人參考，非投資建議。">
+  <title>選股回查｜第一根大陽線 + Kronos</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #f4f1ea; --bg-elev: #fffcf6; --ink: #1c2422; --muted: #5c6663; --line: #ddd6c8;
+      --accent: #1f5f54; --accent-soft: #e4efe9; --up: #c62828; --down: #12805a;
+      --pick-bg: #e5f6ec; --warn-bg: #f8efd8; --warn: #9a6b12;
+      --shadow: 0 1px 2px rgba(28,36,34,.05), 0 8px 24px rgba(28,36,34,.06); --radius: 14px;
+      --font: "Source Han Sans TC", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", system-ui, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121614; --bg-elev: #1c221f; --ink: #eef3ef; --muted: #9aa59f; --line: #2c352f;
+        --accent: #8fd0c1; --accent-soft: #1e332e; --up: #ff7a7a; --down: #5fd6a0;
+        --pick-bg: #153325; --warn-bg: #3a2d12; --warn: #f0c36e;
+        --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body { font-family: var(--font); background: var(--bg); color: var(--ink); line-height: 1.55; font-size: 16px; -webkit-text-size-adjust: 100%; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 20px 16px 64px; padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
+    .sitenav { margin: 0 0 12px; font-size: .92rem; color: var(--muted); display: flex; gap: 14px; }
+    .sitenav a { color: var(--accent); text-decoration: none; font-weight: 650; }
+    .sitenav a:hover { text-decoration: underline; }
+    .sitenav a[aria-current="page"] { color: var(--ink); pointer-events: none; }
+    h1 { font-size: 1.55rem; font-weight: 700; letter-spacing: .02em; margin: 0 0 8px; }
+    h2 { font-size: 1.12rem; margin: 0 0 10px; font-weight: 700; }
+    .meta { color: var(--muted); font-size: .95rem; margin: 0 0 8px; }
+    .lede { margin: 0; max-width: 46rem; }
+    section.block { background: var(--bg-elev); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 16px 14px; margin: 16px 0; box-shadow: var(--shadow); }
+    section.block p { margin: 0 0 10px; }
+    section.block p:last-child { margin-bottom: 0; }
+    .picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .picker button, .picker input { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; min-height: 42px; }
+    .picker button { cursor: pointer; font-weight: 650; }
+    .picker button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+    .picker button:disabled { opacity: .4; cursor: default; }
+    .picker input { color-scheme: light dark; }
+    .picker .wd { color: var(--muted); font-size: .95rem; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+    .stat label { display: block; color: var(--muted); font-size: .78rem; }
+    .stat b { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+    .stat small { display: block; color: var(--muted); font-size: .74rem; }
+    .tbl { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { border-collapse: collapse; width: 100%; font-size: .92rem; font-variant-numeric: tabular-nums; min-width: 760px; }
+    th, td { padding: 8px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; font-size: .78rem; position: sticky; top: 0; background: var(--bg-elev); }
+    th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+    tr.pick td { background: var(--pick-bg); }
+    .code { font-weight: 700; }
+    .mk { color: var(--muted); font-size: .74rem; margin-left: 4px; }
+    .up { color: var(--up); } .down { color: var(--down); }
+    .tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .78rem; font-weight: 650; }
+    .tag.y { color: var(--down); background: var(--pick-bg); border: 1px solid var(--down); }
+    .tag.n { color: var(--muted); border: 1px solid var(--line); }
+    .na { color: var(--muted); }
+    .empty { color: var(--muted); padding: 18px 4px; }
+    .note { color: var(--muted); font-size: .88rem; }
+    .callout { margin: 16px 0; padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); color: var(--warn); font-weight: 650; }
+    ul.cond { margin: 6px 0 10px; padding-left: 1.2em; } ul.cond li { margin: 2px 0; }
+    footer { color: var(--muted); font-size: .85rem; margin-top: 8px; }
+    a { color: var(--accent); }
+    footer a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <nav class="sitenav" aria-label="網站導覽">
+        <a href="./">點位速查</a>
+        <a href="picks.html" aria-current="page">選股回查</a>
+      </nav>
+      <h1>選股回查</h1>
+      <p class="meta" id="meta">讀取資料中…</p>
+      <p class="lede">選一個日期，列出當天用「第一根大陽線」選出的台股，以及 Kronos 預測的 5 日漲跌，並對照之後實際的走勢。</p>
+    </header>
+
+    <section class="block" aria-label="選擇日期">
+      <div class="picker">
+        <button id="prev" type="button" aria-label="前一個交易日">◀ 前一日</button>
+        <input id="date" type="date" aria-label="選擇日期">
+        <button id="next" type="button" aria-label="後一個交易日">後一日 ▶</button>
+        <button id="latest" type="button">最新</button>
+        <span class="wd" id="wd"></span>
+      </div>
+    </section>
+
+    <section class="block" id="sum-block" hidden>
+      <h2 id="sum-title">當日摘要</h2>
+      <div class="stats" id="stats"></div>
+      <p class="note" id="sum-note" style="margin-top:10px"></p>
+    </section>
+
+    <section class="block" id="a-block" hidden>
+      <h2>策略一　第一根大陽線（<span id="a-n">0</span> 檔）</h2>
+      <div class="tbl"><table id="a-tbl"></table></div>
+      <p class="empty" id="a-empty" hidden>這天沒有股票符合條件。</p>
+    </section>
+
+    <section class="block" id="k-block" hidden>
+      <h2>策略二　Kronos 選股（<span id="k-n">0</span> 檔）</h2>
+      <p class="note">從上面的股票中，挑 Kronos 預測 5 日收盤報酬大於 0 的，依預測漲幅由高到低排列。</p>
+      <div class="tbl"><table id="k-tbl"></table></div>
+      <p class="empty" id="k-empty" hidden>這天 Kronos 沒有預測上漲的股票。</p>
+    </section>
+
+    <section class="block" id="legend">
+      <h2>怎麼看</h2>
+      <p><b>第一根大陽線</b>：長期整理後第一次放量、收盤突破多日箱型的長紅 K。條件（上市、上櫃普通股，不含 ETF、權證、DR、特別股、興櫃）：</p>
+      <ul class="cond">
+        <li>實收股本 ≤ 300 億元；前 20 日均量 ≥ 150 張。</li>
+        <li>當日漲幅 ≥ 7%、紅 K 實體 ≥ 昨收 3%、上影線 ≤ 當日振幅 50%。</li>
+        <li>當日量 ≥ 前 20 日均量 2 倍且 ≥ 1,000 張；前 10 日沒有任何一天 ≥ 均量 4 倍。</li>
+        <li>箱型：前 15–30 個交易日中振幅 ≤ 25% 的最長區間；箱頂＝箱內最高收盤，箱頂 2% 內至少測試 2 次（間隔 ≥ 3 日），當日收盤高於箱頂。</li>
+        <li>前一日 5／10／20 日均線最大差距 ≤ 7%；近 20 個交易日未觸發過。</li>
+      </ul>
+      <p><b>Kronos</b>：開源 K 線預測基礎模型（<a href="https://github.com/shiyu-coder/Kronos" target="_blank" rel="noopener">shiyu-coder/Kronos</a>，mini 4.1M 參數，CPU 執行）。用訊號日以前 200 根日 K 預測未來 10 日，5 次抽樣取平均（模型有隨機抽樣，同一檔重跑結果會略有不同；每個訊號只預測一次並固定下來）。「Kronos 選入」＝預測 5 日收盤報酬 &gt; 0。上市未滿 200 個交易日或資料缺漏的股票無法預測；2021 年 6 月以前沒有 Kronos 預測。</p>
+      <p><b>之後的走勢</b>：假設以訊號日收盤價進場，次日＝次一交易日收盤報酬，5 日＝第 5 個交易日收盤報酬，10 日內最高＝之後 10 個交易日的最高收盤（括號內為盤中最高）。資料還不到天數的顯示「—」。未計手續費、稅與滑價；訊號日常漲停鎖住，實際不一定買得到。價格為未還原權息的官方收盤價。</p>
+      <p><b>回測結論</b>：5,592 筆訊號（2021-06 至 2026-09）中，Kronos 預測 5 日 &gt; 0 的股票 5 日上漲比例 43.3%（全部訊號 44.5%），扣成本後淨報酬 −0.14%（全部 +0.43%），沒有顯示它能當選股過濾器。這頁只是回查，方便自己對照。</p>
+      <p>資料來源：證交所、櫃買中心每日收盤行情，證交所與櫃買中心公開的上市櫃公司基本資料（股本、名稱）。</p>
+    </section>
+
+    <div class="callout">非投資建議。依公開歷史行情計算，僅供個人參考。</div>
+    <footer>本頁由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。<a href="./">回點位速查</a></footer>
+  </div>
+<script>
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const WD = ['日', '一', '二', '三', '四', '五', '六'];
+  let IDX = null, cur = null;
+  const yearCache = {};
+  const MK = { L: '上市', O: '上櫃' };
+
+  const fmt = (x, d) => x == null ? null : x.toFixed(d == null ? 2 : d);
+  const sgn = (x, d) => x == null ? null : (x > 0 ? '+' : '') + x.toFixed(d == null ? 2 : d) + '%';
+  const cls = (x) => x == null ? 'na' : (x > 0 ? 'up' : (x < 0 ? 'down' : ''));
+  const cell = (x, d) => x == null ? '<td class="na">—</td>' : '<td class="' + cls(x) + '">' + sgn(x, d) + '</td>';
+  const mean = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+  async function loadYear(y) {
+    if (!yearCache[y]) {
+      yearCache[y] = fetch('data/picks/y' + y + '.json', { cache: 'no-cache' })
+        .then((r) => r.ok ? r.json() : {}).catch(() => ({}));
+    }
+    return yearCache[y];
+  }
+
+  function nearest(d) {            // d: 'YYYY-MM-DD' → 最近且不晚於 d 的交易日（早於第一天則取第一天）
+    const ds = IDX.d;
+    let lo = 0, hi = ds.length - 1, ans = 0;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (ds[m] <= d) { ans = m; lo = m + 1; } else hi = m - 1;
+    }
+    return ans;
+  }
+
+  function outcomeCells(r) {
+    const mx = r.mx == null ? '<td class="na">—</td>' :
+      '<td class="' + cls(r.mx) + '">' + sgn(r.mx) + (r.mh != null ? ' <span class="na">(' + sgn(r.mh) + ')</span>' : '') +
+      (r.nd < 10 ? ' <span class="na">' + r.nd + '日</span>' : '') + '</td>';
+    return cell(r.r1) + cell(r.r5) + mx;
+  }
+
+  function kcell(r) {
+    if (r.k == null) return '<td class="na">' + (r.kna ? '無法預測' : '—') + '</td><td><span class="na">—</span></td>';
+    const pick = r.k > 0;
+    return '<td class="' + cls(r.k) + '">' + sgn(r.k) + '</td><td>' +
+      (pick ? '<span class="tag y">選入</span>' : '<span class="tag n">未選</span>') + '</td>';
+  }
+
+  function head(withK) {
+    return '<thead><tr><th>代號</th><th>名稱</th><th>收盤</th><th>漲幅</th><th>成交量(張)</th><th>量比</th><th>突破箱頂</th>' +
+      (withK ? '<th>Kronos 預測5日</th><th>Kronos</th>' : '<th>Kronos 預測5日</th>') +
+      '<th>次日</th><th>5日</th><th>10日內最高</th></tr></thead>';
+  }
+
+  function rowHtml(r, withK) {
+    const k = r.k;
+    return '<tr' + (k != null && k > 0 ? ' class="pick"' : '') + '><td class="code">' + esc(r.c) + '</td><td>' + esc(r.n) +
+      '<span class="mk">' + (MK[r.m] || '') + '</span></td><td>' + fmt(r.cl) + '</td><td class="up">+' + fmt(r.pc) + '%</td><td>' +
+      r.lot.toLocaleString() + '</td><td>' + fmt(r.vx, 1) + 'x</td><td>+' + fmt(r.bk) + '%</td>' +
+      (withK ? kcell(r) : (k == null ? '<td class="na">' + (r.kna ? '無法預測' : '—') + '</td>' : '<td class="' + cls(k) + '">' + sgn(k) + '</td>')) +
+      outcomeCells(r) + '</tr>';
+  }
+
+  function stat(label, val, sub) {
+    return '<div class="stat"><label>' + label + '</label><b>' + val + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+  }
+
+  function summarize(rows) {
+    const known = (a, f) => a.map(f).filter((x) => x != null);
+    const kr = rows.filter((r) => r.k != null && r.k > 0);
+    const grp = (a) => {
+      const r5 = known(a, (r) => r.r5), r1 = known(a, (r) => r.r1), mx = known(a, (r) => r.mx);
+      return { n: a.length, r5, r1, mx };
+    };
+    const A = grp(rows), K = grp(kr);
+    const one = (g) => {
+      const win = g.r5.length ? Math.round(100 * g.r5.filter((x) => x > 0).length / g.r5.length) + '%' : '—';
+      return { avg5: g.r5.length ? sgn(mean(g.r5)) : '—', win, n5: g.r5.length, avg1: g.r1.length ? sgn(mean(g.r1)) : '—' };
+    };
+    const a = one(A), k = one(K);
+    return [
+      stat('第一根大陽線', rows.length + ' 檔'),
+      stat('Kronos 選入', kr.length + ' 檔', rows.length ? '預測 5 日 > 0' : ''),
+      stat('大陽線 次日平均', a.avg1),
+      stat('大陽線 5 日平均', a.avg5, '5 日上漲 ' + a.win + '（已知 ' + a.n5 + ' 檔）'),
+      stat('Kronos 選入 5 日平均', k.avg5, k.n5 ? '5 日上漲 ' + k.win + '（已知 ' + k.n5 + ' 檔）' : '尚無結果'),
+    ].join('');
+  }
+
+  async function show(d) {
+    cur = d;
+    $('date').value = d;
+    const i = IDX.d.indexOf(d);
+    const dt = new Date(d + 'T00:00:00');
+    $('wd').textContent = '週' + WD[dt.getDay()] + '　第 ' + (i + 1) + ' / ' + IDX.d.length + ' 個交易日';
+    $('prev').disabled = i <= 0;
+    $('next').disabled = i >= IDX.d.length - 1;
+    history.replaceState(null, '', '#' + d);
+    const rows = ((await loadYear(d.slice(0, 4)))[d] || []).slice();
+    if (cur !== d) return;
+    rows.sort((a, b) => (b.vx - a.vx));
+    $('sum-block').hidden = $('a-block').hidden = $('k-block').hidden = false;
+    $('sum-title').textContent = d + ' 當日摘要';
+    $('stats').innerHTML = summarize(rows);
+    const noK = d < '2021-06-15';
+    $('sum-note').textContent = rows.length ? (noK ? '2021 年 6 月中以前沒有 Kronos 預測。' : '') : '';
+    $('a-n').textContent = rows.length;
+    $('a-tbl').innerHTML = rows.length ? head(true) + '<tbody>' + rows.map((r) => rowHtml(r, true)).join('') + '</tbody>' : '';
+    $('a-tbl').parentNode.hidden = !rows.length;
+    $('a-empty').hidden = rows.length > 0;
+    const kr = rows.filter((r) => r.k != null && r.k > 0).sort((a, b) => b.k - a.k);
+    $('k-n').textContent = kr.length;
+    $('k-tbl').innerHTML = kr.length ? head(false) + '<tbody>' + kr.map((r) => rowHtml(r, false)).join('') + '</tbody>' : '';
+    $('k-tbl').parentNode.hidden = !kr.length;
+    $('k-empty').hidden = kr.length > 0;
+    $('k-empty').textContent = rows.length ? (noK ? '這段期間沒有 Kronos 預測。' : '這天 Kronos 沒有預測上漲的股票。') : '這天沒有第一根大陽線，所以 Kronos 也沒有可選的股票。';
+  }
+
+  function go(d) { return show(IDX.d[nearest(d)]); }
+
+  async function init() {
+    try {
+      IDX = await (await fetch('data/picks/index.json', { cache: 'no-cache' })).json();
+    } catch (e) {
+      $('meta').textContent = '資料讀取失敗，請稍後重新整理。';
+      return;
+    }
+    const first = IDX.d[0], last = IDX.d[IDX.d.length - 1];
+    $('date').min = first; $('date').max = last;
+    const tot = IDX.a.reduce((s, x) => s + x, 0);
+    const upd = IDX.updated ? new Date(IDX.updated).toLocaleString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' }) : '';
+    $('meta').textContent = '資料日 ' + first + ' ～ ' + last + '，共 ' + IDX.d.length + ' 個交易日、' + tot.toLocaleString() + ' 筆訊號' + (upd ? '；更新於 ' + upd + '（台北時間）' : '');
+    $('prev').onclick = () => { const i = IDX.d.indexOf(cur); if (i > 0) show(IDX.d[i - 1]); };
+    $('next').onclick = () => { const i = IDX.d.indexOf(cur); if (i < IDX.d.length - 1) show(IDX.d[i + 1]); };
+    $('latest').onclick = () => show(last);
+    $('date').onchange = (e) => { if (e.target.value) go(e.target.value); };
+    document.addEventListener('keydown', (e) => {
+      if (e.target && e.target.tagName === 'INPUT') return;
+      if (e.key === 'ArrowLeft') $('prev').click();
+      if (e.key === 'ArrowRight') $('next').click();
+    });
+    const h = (location.hash || '').slice(1);
+    // 預設顯示最近一個有訊號的日子，比空白頁有用
+    let start = last;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(h)) start = IDX.d[nearest(h)];
+    show(start);
+    window.addEventListener('hashchange', () => {
+      const x = (location.hash || '').slice(1);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(x) && x !== cur) go(x);
+    });
+  }
+  init();
+})();
+</script>
+</body>
+</html>

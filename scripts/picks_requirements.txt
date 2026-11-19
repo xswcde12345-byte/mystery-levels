@@ -1,0 +1,7 @@
+# Kronos mini on CPU (torch is installed first from the CPU-only index, see update.yml)
+numpy
+pandas
+einops==0.8.1
+huggingface_hub
+safetensors
+tqdm

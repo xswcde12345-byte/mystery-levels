@@ -5,3 +5,4 @@ cache/
 _site/
 .DS_Store
 *.bin
+cache_picks/
