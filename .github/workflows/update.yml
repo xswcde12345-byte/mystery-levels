@@ -101,7 +101,7 @@ jobs:
         if: github.event_name != 'schedule' || steps.commit.outputs.changed == 'true'
         run: |
           mkdir -p _site/data
-          cp index.html kronos.html _site/
+          cp index.html _site/
           cp data/latest.json _site/data/
           python3 scripts/build_hist.py _site/data/hist
           if [ -f data/us.json ]; then cp data/us.json _site/data/; cp data/us_hist/*.json _site/data/hist/; fi
