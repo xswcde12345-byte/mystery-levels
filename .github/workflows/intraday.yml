@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: 12
     environment:
       name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
+      url: ${{ steps.deploy1.outputs.page_url || steps.deploy.outputs.page_url }}
     env:
       PREV_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/data/picks/intraday.json
     steps:
@@ -113,6 +113,17 @@ jobs:
           path: _site
 
       - name: Deploy to GitHub Pages
-        id: deploy
+        id: deploy1
         if: steps.stage.outcome == 'success'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      # GitHub 偶爾剛上傳完還查不到 artifact（"No artifacts named github-pages"），等一下再試一次
+      - name: Retry deploy after a short wait
+        if: steps.stage.outcome == 'success' && steps.deploy1.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy to GitHub Pages (retry)
+        id: deploy
+        if: steps.stage.outcome == 'success' && steps.deploy1.outcome == 'failure'
         uses: actions/deploy-pages@v4
