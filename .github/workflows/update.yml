@@ -69,18 +69,9 @@ jobs:
           key: picks-${{ github.run_id }}
           restore-keys: picks-
 
-      # 選股回查：第一根大陽線掃描（純 Python，約 1–2 分鐘）。失敗不影響點位網站。
-      - name: Picks scan (first big bullish candle)
-        id: picks
-        if: steps.gate.outputs.run == 'true'
-        timeout-minutes: 12
-        continue-on-error: true
-        run: python3 scripts/picks_scan.py
-
-      # Kronos 只在有新訊號需要預測時才安裝與執行；失敗不影響其他步驟。
-      - name: Set up Python for Kronos
+      - name: Set up Python for picks
         id: pysetup
-        if: steps.picks.outputs.need_kronos == 'true'
+        if: steps.gate.outputs.run == 'true'
         continue-on-error: true
         uses: actions/setup-python@v5
         with:
@@ -88,8 +79,19 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/picks_requirements.txt
 
-      - name: Cache Hugging Face model
+      # 選股回查：第一根大陽線掃描（約 1–2 分鐘）。失敗不影響點位網站。
+      - name: Picks scan (first big bullish candle)
+        id: picks
         if: steps.pysetup.outcome == 'success'
+        timeout-minutes: 12
+        continue-on-error: true
+        run: |
+          pip install -q numpy
+          python scripts/picks_scan.py
+
+      # Kronos 只在有新訊號需要預測時才安裝與執行；失敗不影響其他步驟。
+      - name: Cache Hugging Face model
+        if: steps.picks.outputs.need_kronos == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
@@ -97,7 +99,7 @@ jobs:
 
       - name: Kronos mini on CPU (non-fatal)
         id: kronos
-        if: steps.pysetup.outcome == 'success'
+        if: steps.picks.outputs.need_kronos == 'true'
         timeout-minutes: 15
         continue-on-error: true
         env:
