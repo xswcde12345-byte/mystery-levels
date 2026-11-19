@@ -35,6 +35,21 @@ def load_picks() -> tuple[dict, dict]:
     return rows, idx
 
 
+def compute_stats(rows: dict) -> dict:
+    """全期統計（隨資料重算）：已有 5 日結果的訊號；10 日內 +5% 只計滿 10 日者（以收盤價計）。"""
+    def grp(rs):
+        r5 = [r["r5"] for r in rs if r.get("r5") is not None]
+        mx = [r["mx"] for r in rs if r.get("mx") is not None and r.get("nd", 0) >= 10]
+        return dict(n=len(rs), n5=len(r5), up5=round(100 * sum(1 for x in r5 if x > 0) / len(r5), 1) if r5 else None,
+                    avg5=round(sum(r5) / len(r5), 2) if r5 else None,
+                    hit5=round(100 * sum(1 for x in mx if x >= 5) / len(mx), 1) if mx else None, nh=len(mx))
+    allr = [r for rs in rows.values() for r in rs]
+    withk = [r for r in allr if r.get("k") is not None]
+    ds = sorted(d for d, rs in rows.items() if rs)
+    return dict(all=grp(allr), kall=grp(withk), kpick=grp([r for r in withk if r["k"] > 0]),
+                knot=grp([r for r in withk if r["k"] <= 0]), first=ds[0] if ds else None, last=ds[-1] if ds else None)
+
+
 def write_picks(rows: dict, trading: list[str], extra: dict | None = None) -> None:
     """rows: {iso: [row]}；trading: 全部交易日（YYYYMMDD，含無訊號日）。"""
     os.makedirs(L.OUT, exist_ok=True)
@@ -47,13 +62,20 @@ def write_picks(rows: dict, trading: list[str], extra: dict | None = None) -> No
     for y, m in by_year.items():
         with open(os.path.join(L.OUT, f"y{y}.json"), "w", encoding="utf-8") as f:
             json.dump(dict(sorted(m.items())), f, ensure_ascii=False, separators=(",", ":"))
-    ds = sorted(set(trading) | {d.replace("-", "") for d in rows})
+    prev = set()
+    try:                                                    # 保留已知的交易日（日線快取只有最近 300 天）
+        prev = {d.replace("-", "") for d in json.load(open(os.path.join(L.OUT, "index.json"), encoding="utf-8"))["d"]}
+    except Exception:
+        pass
+    ds = sorted(set(trading) | prev | {d.replace("-", "") for d in rows})
     ds = [d for d in ds if d >= FIRST]
     idx = {
         "d": [iso(d) for d in ds],
         "a": [len(rows.get(iso(d), [])) for d in ds],
         "k": [sum(1 for r in rows.get(iso(d), []) if r.get("k") is not None and r["k"] > 0) for d in ds],
         "updated": dt.datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds"),
+        "stats": compute_stats(rows),
+        "rule": "當日漲幅 ≥ %g%%" % L.P["PCT"],
     }
     idx.update(extra or {})
     with open(os.path.join(L.OUT, "index.json"), "w", encoding="utf-8") as f:

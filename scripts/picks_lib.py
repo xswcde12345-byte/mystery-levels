@@ -30,7 +30,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) mystery-levels-picks"
 KEEP_DAYS = 300                                      # 日線快取保留交易日數（Kronos 需 200 根）
 
 # ---- 第一根大陽線參數（preset B，2026-10-23 版：前 10 日爆量上限 4 倍） ----
-P = dict(PCT=7.0, BODY=3.0, UPPER=0.50, VX=2.0, BOX_N=15, BOX_MAX=30, AMP=0.25, PRIOR_SPIKE=4.0,
+P = dict(PCT=6.0, BODY=3.0, UPPER=0.50, VX=2.0, BOX_N=15, BOX_MAX=30, AMP=0.25, PRIOR_SPIKE=4.0,
          CONV=0.07, MIN_BASE=150_000, MIN_VOL=1_000_000, DEDUP=20, TOUCH_TOL=0.02, MIN_TOUCH=2,
          TOUCH_GAP=3, BRK=0.0)
 NEED = 41                                            # 20 日基準量 + 20 日均線 + 當日

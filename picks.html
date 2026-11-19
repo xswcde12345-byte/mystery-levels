@@ -55,6 +55,7 @@
     th, td { padding: 8px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
     th { color: var(--muted); font-weight: 600; font-size: .78rem; position: sticky; top: 0; background: var(--bg-elev); }
     th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+    #stat-tbl th:nth-child(2), #stat-tbl td:nth-child(2) { text-align: right; }
     tr.pick td { background: var(--pick-bg); }
     .code { font-weight: 700; }
     .mk { color: var(--muted); font-size: .74rem; margin-left: 4px; }
@@ -135,14 +136,16 @@
       <p><b>第一根大陽線</b>：長期整理後第一次放量、收盤突破多日箱型的長紅 K。條件（上市、上櫃普通股，不含 ETF、權證、DR、特別股、興櫃）：</p>
       <ul class="cond">
         <li>實收股本 ≤ 300 億元；前 20 日均量 ≥ 150 張。</li>
-        <li>當日漲幅 ≥ 7%、紅 K 實體 ≥ 昨收 3%、上影線 ≤ 當日振幅 50%。</li>
+        <li>當日漲幅 ≥ 6%、紅 K 實體 ≥ 昨收 3%、上影線 ≤ 當日振幅 50%。</li>
         <li>當日量 ≥ 前 20 日均量 2 倍且 ≥ 1,000 張；前 10 日沒有任何一天 ≥ 均量 4 倍。</li>
         <li>箱型：前 15–30 個交易日中振幅 ≤ 25% 的最長區間；箱頂＝箱內最高收盤，箱頂 2% 內至少測試 2 次（間隔 ≥ 3 日），當日收盤高於箱頂。</li>
         <li>前一日 5／10／20 日均線最大差距 ≤ 7%；近 20 個交易日未觸發過。</li>
       </ul>
       <p><b>Kronos</b>：開源 K 線預測基礎模型（<a href="https://github.com/shiyu-coder/Kronos" target="_blank" rel="noopener">shiyu-coder/Kronos</a>，mini 4.1M 參數，CPU 執行）。用訊號日以前 200 根日 K 預測未來 10 日，5 次抽樣取平均（模型有隨機抽樣，同一檔重跑結果會略有不同；每個訊號只預測一次並固定下來）。「Kronos 選入」＝預測 5 日收盤報酬 &gt; 0。上市未滿 200 個交易日或資料缺漏的股票無法預測；2021 年 6 月以前沒有 Kronos 預測。</p>
       <p><b>之後的走勢</b>：假設以訊號日收盤價進場，次日＝次一交易日收盤報酬，5 日＝第 5 個交易日收盤報酬，10 日內最高＝之後 10 個交易日的最高收盤（括號內為盤中最高）。資料還不到天數的顯示「—」。未計手續費、稅與滑價；訊號日常漲停鎖住，實際不一定買得到。價格為未還原權息的官方收盤價。</p>
-      <p><b>回測結論</b>：5,592 筆訊號（2021-06 至 2026-09）中，Kronos 預測 5 日 &gt; 0 的股票 5 日上漲比例 43.3%（全部訊號 44.5%），扣成本後淨報酬 −0.14%（全部 +0.43%），沒有顯示它能當選股過濾器。這頁只是回查，方便自己對照。</p>
+      <p><b>全期統計</b>（隨資料每日重算，2021-01 起，以訊號日收盤進場、未計成本）：</p>
+      <div class="tbl"><table id="stat-tbl" style="min-width:560px"></table></div>
+      <p class="note" id="stat-note"></p>
       <p>資料來源：證交所、櫃買中心每日收盤行情，證交所與櫃買中心公開的上市櫃公司基本資料（股本、名稱）。</p>
     </section>
 
@@ -317,6 +320,18 @@
     } catch (e) { return false; }
   }
 
+
+  function renderStats() {
+    const S = IDX.stats;
+    if (!S) return;
+    const row = (name, g) => '<tr><td>' + name + '</td><td>' + g.n.toLocaleString() + '</td><td>' + (g.up5 == null ? '—' : g.up5 + '%') +
+      '</td><td class="' + cls(g.avg5) + '">' + (g.avg5 == null ? '—' : sgn(g.avg5)) + '</td><td>' + (g.hit5 == null ? '—' : g.hit5 + '%') + '</td></tr>';
+    $('stat-tbl').innerHTML = '<thead><tr><th>分組</th><th>訊號數</th><th>5 日上漲比例</th><th>5 日平均報酬</th><th>10 日內收盤觸及 +5%</th></tr></thead><tbody>' +
+      row('全部訊號（' + IDX.rule + '）', S.all) + row('有 Kronos 預測的訊號', S.kall) + row('Kronos 選入（預測 5 日 > 0）', S.kpick) +
+      row('Kronos 未選入', S.knot) + '</tbody>';
+    $('stat-note').textContent = '統計期間 ' + S.first + ' ～ ' + S.last + '。Kronos 預測從 2021 年 6 月才有，且上市未滿 200 個交易日者無法預測；尚未滿 5 日或 10 日的訊號不計入對應欄位。結論請自行判讀：若 Kronos 選入的各項數字沒有明顯優於其他分組，就表示它不適合當過濾器。';
+  }
+
   function go(d) { return show(IDX.d[nearest(d)]); }
 
   async function init() {
@@ -331,6 +346,7 @@
     const tot = IDX.a.reduce((s, x) => s + x, 0);
     const upd = IDX.updated ? new Date(IDX.updated).toLocaleString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' }) : '';
     $('meta').textContent = '資料日 ' + first + ' ～ ' + last + '，共 ' + IDX.d.length + ' 個交易日、' + tot.toLocaleString() + ' 筆訊號' + (upd ? '；更新於 ' + upd + '（台北時間）' : '');
+    renderStats();
     $('prev').onclick = () => { if (mode === 'idy') { show(last); return; } const i = IDX.d.indexOf(cur); if (i > 0) show(IDX.d[i - 1]); };
     $('next').onclick = () => { if (mode === 'idy') return; const i = IDX.d.indexOf(cur); if (i < IDX.d.length - 1) show(IDX.d[i + 1]); };
     $('latest').onclick = () => show(last);
