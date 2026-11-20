@@ -101,6 +101,15 @@ def main() -> int:
         L.log(f"picks: only {len(dates)} cached days, skip")
         return 1
     store = L.build_store(dates)
+    os.makedirs(L.OUT, exist_ok=True)
+    try:                                              # 利弗莫爾關鍵點（收盤版），失敗不影響其他
+        lm = L.livermore_day(store, dates, dates[-1])
+        json.dump(dict(date=iso(dates[-1]), basis="收盤價", rows=[dict(c=c, n=n, m=m) for c, n, m in sorted(lm)],
+                       generated_at=dt.datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds")),
+                  open(os.path.join(L.OUT, "livermore.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
+        L.log(f"picks: livermore {dates[-1]} -> {len(lm)} stocks")
+    except Exception as e:
+        L.log(f"picks: livermore failed ({type(e).__name__}: {e})")
     capf = os.path.join(L.CACHE, "caps.json")
     caps = L.fetch_caps()
     if len(caps) > 1500:

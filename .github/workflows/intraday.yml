@@ -1,7 +1,7 @@
 name: Intraday picks
 
-# 選股回查「盤中」：台北時間週一至週五 09:07–13:37，約每 15 分鐘一次（UTC = 台北 − 8 小時）。
-# 獨立於點位更新流程：只掃描第一根大陽線、對新入選者跑 Kronos、重新部署網站（含盤中名單）。
+# 選股回查「利弗莫爾關鍵點」盤中名單：台北時間週一至週五 09:07–13:37，約每 15 分鐘一次（UTC = 台北 − 8 小時）。
+# 獨立於點位更新流程：只掃描利弗莫爾關鍵點、重新部署網站（含盤中名單）。
 # 失敗不會改動點位資料；收盤後主流程部署的網站不含盤中名單，等於由收盤版取代。
 on:
   schedule:
@@ -64,7 +64,7 @@ jobs:
           cache: pip
           cache-dependency-path: scripts/picks_requirements.txt
 
-      - name: Intraday scan (live quotes)
+      - name: Intraday scan (Livermore, live quotes)
         id: scan
         if: steps.pysetup.outcome == 'success'
         timeout-minutes: 6
@@ -72,30 +72,6 @@ jobs:
         run: |
           pip install -q numpy
           python scripts/picks_intraday.py
-
-      - name: Cache Hugging Face model
-        if: steps.scan.outputs.need_kronos == 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: hf-kronos-mini-v1
-
-      - name: Kronos mini on CPU (non-fatal)
-        if: steps.scan.outputs.need_kronos == 'true'
-        timeout-minutes: 6
-        continue-on-error: true
-        env:
-          KRONOS_COMMIT: 67b630e67f6a18c9e9be918d9b4337c960db1e9a
-          KRONOS_DIR: ${{ github.workspace }}/kronos_src
-          HF_HUB_DISABLE_PROGRESS_BARS: "1"
-        run: |
-          pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -r scripts/picks_requirements.txt
-          mkdir -p "$KRONOS_DIR" && cd "$KRONOS_DIR"
-          git init -q . && git remote add origin https://github.com/shiyu-coder/Kronos.git
-          git fetch -q --depth 1 origin "$KRONOS_COMMIT" && git checkout -q FETCH_HEAD
-          cd "$GITHUB_WORKSPACE"
-          python scripts/picks_intraday.py --kronos
 
       - name: Stage site
         id: stage

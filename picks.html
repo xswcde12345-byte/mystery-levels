@@ -88,29 +88,31 @@
       </nav>
       <h1>選股回查</h1>
       <p class="meta" id="meta">讀取資料中…</p>
-      <p class="lede">選一個日期，列出當天用「第一根大陽線」選出的台股，以及 Kronos 預測的 5 日漲跌，並對照之後實際的走勢。</p>
+      <p class="lede">上方是「利弗莫爾關鍵點」即時名單（盤中每約 15 分鐘更新，收盤後改為收盤結果）。下方可選一個日期，查看當天用「第一根大陽線」選出的台股、Kronos 預測的 5 日漲跌，並對照之後實際的走勢。</p>
     </header>
+
+    <section class="block" id="lm-block">
+      <h2>利弗莫爾關鍵點</h2>
+      <div class="live-banner" id="lm-banner">讀取中…</div>
+      <p class="note" id="lm-warn"></p>
+      <p><b id="lm-n">0</b> 檔</p>
+      <div class="tbl"><table id="lm-tbl" style="min-width:260px;max-width:420px"></table></div>
+      <p class="empty" id="lm-empty" hidden>目前沒有股票符合條件。</p>
+      <details style="margin-top:12px">
+        <summary><b>這個條件是什麼？</b></summary>
+        <p style="margin-top:8px">股價（盤中用現價、收盤後用收盤價）創過去 120 個交易日的最高收盤價，而且成交量 ≥ 前 20 日均量的 1.5 倍；前 20 日均量需 ≥ 150 張、非除權息日，且 20 個交易日內同一檔不重複列出。盤中的成交量用「推估全日量」：依已交易時間外推（線性與 U 型曲線取較小值），所以越接近開盤誤差越大，掃描時間見上方；名單收盤前可能增減。收盤後約 14:00 起改為收盤價的正式結果。</p>
+        <p><b>回測（2021–2026，隔天開盤買進、扣 0.6% 成本）</b>：共 12,304 筆訊號，5 日上漲比例 43.4%，5 日淨報酬 −0.51%（同日隨機選股 −0.69%）；20 日淨報酬 +0.65%（隨機 −0.14%），6 年都贏過隨機選股，但輸給同期加權指數的 +1.69%。優勢有限，只是比隨機好一些，不是必勝的方法。</p>
+      </details>
+    </section>
 
     <section class="block" aria-label="選擇日期">
       <div class="picker">
         <button id="prev" type="button" aria-label="前一個交易日">◀ 前一日</button>
         <input id="date" type="date" aria-label="選擇日期">
         <button id="next" type="button" aria-label="後一個交易日">後一日 ▶</button>
-        <button id="latest" type="button">最新（收盤）</button>
-        <button id="idy-btn" class="idy" type="button" aria-pressed="false" hidden>盤中即時</button>
+        <button id="latest" type="button">最新</button>
         <span class="wd" id="wd"></span>
       </div>
-    </section>
-
-    <section class="block" id="idy-block" hidden>
-      <div class="live-banner"><span class="live-dot"></span>盤中名單（<span id="idy-date"></span>）　更新時間 <span id="idy-time"></span>（台北時間）</div>
-      <p class="note">這是盤中預警，不是收盤結果：價格、K 棒形狀和成交量都是報價當下的暫時狀態，名單在收盤前可能增減。收盤後約 14:00 起會由收盤掃描的正式名單取代。</p>
-      <h2>策略一　第一根大陽線・盤中（<span id="idy-n">0</span> 檔）</h2>
-      <div class="stats" id="idy-stats" style="margin-bottom:12px"></div>
-      <div class="tbl"><table id="idy-tbl"></table></div>
-      <p class="empty" id="idy-empty" hidden>目前沒有股票符合全部條件。</p>
-      <p class="note" id="idy-lim" style="margin-top:10px"></p>
-      <p class="note">推估全日量＝目前累積量依已交易時間外推（線性與 U 型曲線取較小值）；另要求目前實際累積量已達前 20 日均量 1.5 倍；已漲停的股票買不到，不列入。Kronos 以該股今天第一次入選時的盤中 K 棒預測，之後沿用，不隨每次更新重算；盤中 K 棒尚未定型，預測僅供參考。</p>
     </section>
 
     <section class="block" id="sum-block" hidden>
@@ -150,7 +152,7 @@
       <p>資料來源：證交所、櫃買中心每日收盤行情，證交所與櫃買中心公開的上市櫃公司基本資料（股本、名稱）。</p>
     </section>
 
-    <div class="callout">非投資建議。依公開歷史行情計算，僅供個人參考。</div>
+    <div class="callout">部位要小、跌破停損就走，買賣手續費加稅約0.6%要算進去。<br>非投資建議。依公開歷史行情計算，僅供個人參考。</div>
     <footer>本頁由 GitHub Actions 於每個台股交易日收盤後自動更新，不另使用其他計算額度。<a href="./">回點位速查</a></footer>
   </div>
 <script>
@@ -158,7 +160,7 @@
   'use strict';
   const $ = (id) => document.getElementById(id);
   const WD = ['日', '一', '二', '三', '四', '五', '六'];
-  let IDX = null, cur = null, IDY = null, mode = 'day';
+  let IDX = null, cur = null;
   const yearCache = {};
   const MK = { L: '上市', O: '上櫃' };
 
@@ -243,8 +245,7 @@
   }
 
   async function show(d) {
-    mode = 'day'; cur = d;
-    $('idy-block').hidden = true; $('idy-btn').setAttribute('aria-pressed', 'false');
+    cur = d;
     $('date').value = d;
     const i = IDX.d.indexOf(d);
     const dt = new Date(d + 'T00:00:00');
@@ -273,55 +274,6 @@
   }
 
 
-  function idyHead() {
-    return '<thead><tr><th>代號</th><th>名稱</th><th>現價</th><th>漲幅</th><th>現量(張)</th><th>推估全日量(張)</th><th>推估量比</th><th>突破箱頂</th><th>上影線</th><th>Kronos 預測5日</th><th>Kronos</th></tr></thead>';
-  }
-
-  function idyRow(r) {
-    const k = r.k;
-    return '<tr' + (k != null && k > 0 ? ' class="pick"' : '') + '><td class="code">' + esc(r.c) + '</td><td>' + esc(r.n) +
-      '<span class="mk">' + (MK[r.m] || '') + '</span></td><td>' + fmt(r.cl) + '</td><td class="up">+' + fmt(r.pc) + '%</td><td>' +
-      r.lot.toLocaleString() + '</td><td>' + r.plot.toLocaleString() + '</td><td>' + fmt(r.vx, 1) + 'x</td><td>+' + fmt(r.bk) + '%</td><td>' +
-      r.up + '%</td>' + kcell(r) + '</tr>';
-  }
-
-  function showIdy() {
-    mode = 'idy'; cur = null;
-    $('sum-block').hidden = $('a-block').hidden = $('k-block').hidden = true;
-    $('idy-block').hidden = false;
-    $('idy-btn').setAttribute('aria-pressed', 'true');
-    $('date').value = '';
-    $('wd').textContent = '盤中即時：' + IDY.session;
-    $('prev').disabled = false; $('next').disabled = true;
-    history.replaceState(null, '', '#intraday');
-    $('idy-date').textContent = IDY.session;
-    $('idy-time').textContent = new Date(IDY.generated_at).toLocaleTimeString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' }) + '；報價 ' + IDY.quote_time;
-    const rows = IDY.rows;
-    $('idy-n').textContent = rows.length;
-    const kn = rows.filter((r) => r.k != null && r.k > 0).length;
-    $('idy-stats').innerHTML = stat('盤中符合', rows.length + ' 檔') + stat('Kronos 選入', kn + ' 檔', '預測 5 日 > 0') +
-      stat('預篩通過', IDY.n_cand + ' 檔', '取得報價 ' + IDY.n_quoted + ' 檔') +
-      stat('已漲停排除', IDY.limit_up.length + ' 檔', IDY.limit_up.filter((x) => x.ok).length + ' 檔原本符合');
-    $('idy-tbl').innerHTML = rows.length ? idyHead() + '<tbody>' + rows.map(idyRow).join('') + '</tbody>' : '';
-    $('idy-tbl').parentNode.hidden = !rows.length;
-    $('idy-empty').hidden = rows.length > 0;
-    $('idy-lim').textContent = IDY.limit_up.length ? '已漲停（買不到）而排除：' + IDY.limit_up.map((x) => x.c + ' ' + x.n + ' ' + sgn(x.pc, 1)).join('、') : '';
-  }
-
-  async function loadIdy() {
-    try {
-      const r = await fetch('data/picks/intraday.json', { cache: 'no-cache' });
-      if (!r.ok) return false;
-      const j = await r.json();
-      // 只在這天還沒有收盤版資料時顯示
-      if (!j || !j.session || j.session <= IDX.d[IDX.d.length - 1]) return false;
-      IDY = j;
-      $('idy-btn').hidden = false;
-      return true;
-    } catch (e) { return false; }
-  }
-
-
   function renderStats() {
     const S = IDX.stats;
     if (!S) return;
@@ -331,6 +283,29 @@
       row('全部訊號（' + IDX.rule + '）', S.all) + row('有 Kronos 預測的訊號', S.kall) + row('Kronos 選入（預測 5 日 > 0）', S.kpick) +
       row('Kronos 未選入', S.knot) + '</tbody>';
     $('stat-note').textContent = '統計期間 ' + S.first + ' ～ ' + S.last + '。Kronos 預測從 2021 年 6 月才有，且上市未滿 200 個交易日者無法預測；尚未滿 5 日或 10 日的訊號不計入對應欄位。結論請自行判讀：若 Kronos 選入的各項數字沒有明顯優於其他分組，就表示它不適合當過濾器。';
+  }
+
+  function lmRender(j, live) {
+    const rows = j.rows || [];
+    $('lm-n').textContent = rows.length;
+    $('lm-banner').innerHTML = live
+      ? '<span class="live-dot"></span>盤中掃描　' + j.session + '　掃描時間 ' + new Date(j.generated_at).toLocaleTimeString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' }) + '（報價 ' + j.quote_time + '，台北時間）'
+      : '收盤結果　' + j.date + '（以收盤價判斷）';
+    $('lm-warn').textContent = live ? '盤中預警，不是收盤結果：現價與推估量都是當下的暫時狀態，名單在收盤前可能增減。' : '';
+    $('lm-tbl').innerHTML = rows.length ? '<thead><tr><th>代號</th><th>名稱</th></tr></thead><tbody>' +
+      rows.map((r) => '<tr><td class="code">' + esc(r.c) + '</td><td>' + esc(r.n) + '</td></tr>').join('') + '</tbody>' : '';
+    $('lm-tbl').parentNode.hidden = !rows.length;
+    $('lm-empty').hidden = rows.length > 0;
+  }
+
+  async function loadLm() {
+    const get = (u) => fetch(u, { cache: 'no-cache' }).then((r) => r.ok ? r.json() : null).catch(() => null);
+    const [idy, cls_] = await Promise.all([get('data/picks/intraday.json'), get('data/picks/livermore.json')]);
+    // 盤中檔只在還沒有該日收盤結果時使用
+    const iso = (idy && idy.session) || '';
+    if (idy && iso && (!cls_ || iso > cls_.date)) lmRender(idy, true);
+    else if (cls_) lmRender(cls_, false);
+    else { $('lm-banner').textContent = '尚無資料'; $('lm-n').textContent = '0'; $('lm-empty').hidden = false; $('lm-tbl').parentNode.hidden = true; }
   }
 
   function go(d) { return show(IDX.d[nearest(d)]); }
@@ -348,10 +323,9 @@
     const upd = IDX.updated ? new Date(IDX.updated).toLocaleString('zh-TW', { hour12: false, timeZone: 'Asia/Taipei' }) : '';
     $('meta').textContent = '資料日 ' + first + ' ～ ' + last + '，共 ' + IDX.d.length + ' 個交易日、' + tot.toLocaleString() + ' 筆訊號' + (upd ? '；更新於 ' + upd + '（台北時間）' : '');
     renderStats();
-    $('prev').onclick = () => { if (mode === 'idy') { show(last); return; } const i = IDX.d.indexOf(cur); if (i > 0) show(IDX.d[i - 1]); };
-    $('next').onclick = () => { if (mode === 'idy') return; const i = IDX.d.indexOf(cur); if (i < IDX.d.length - 1) show(IDX.d[i + 1]); };
+    $('prev').onclick = () => { const i = IDX.d.indexOf(cur); if (i > 0) show(IDX.d[i - 1]); };
+    $('next').onclick = () => { const i = IDX.d.indexOf(cur); if (i < IDX.d.length - 1) show(IDX.d[i + 1]); };
     $('latest').onclick = () => show(last);
-    $('idy-btn').onclick = () => { if (IDY) showIdy(); };
     $('date').onchange = (e) => { if (e.target.value) go(e.target.value); };
     document.addEventListener('keydown', (e) => {
       if (e.target && e.target.tagName === 'INPUT') return;
@@ -359,19 +333,16 @@
       if (e.key === 'ArrowRight') $('next').click();
     });
     const h = (location.hash || '').slice(1);
-    const hasIdy = await loadIdy();
     let start = last;
     if (/^\d{4}-\d{2}-\d{2}$/.test(h)) start = IDX.d[nearest(h)];
-    // 盤中有資料且沒指定日期時，預設顯示盤中名單
-    if (hasIdy && (h === '' || h === 'intraday')) showIdy(); else show(start);
+    show(start);
     window.addEventListener('hashchange', () => {
       const x = (location.hash || '').slice(1);
-      if (x === 'intraday' && IDY) { if (mode !== 'idy') showIdy(); }
-      else if (/^\d{4}-\d{2}-\d{2}$/.test(x) && x !== cur) go(x);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(x) && x !== cur) go(x);
     });
-    // 盤中模式停留在頁面時，每 5 分鐘重新讀取
-    setInterval(async () => { if (mode === 'idy' && document.visibilityState === 'visible' && await loadIdy()) showIdy(); }, 300000);
   }
+  loadLm();
+  setInterval(loadLm, 300000);
   init();
 })();
 </script>

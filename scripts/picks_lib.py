@@ -416,3 +416,53 @@ def prefilter(a, t, p=P):
         if t - k >= NEED - 1 and check(a, t - k, p) is not None:
             return None
     return dict(base=base, pc=pc, box=bx)
+
+
+# ------------------------------------------------------------------ 利弗莫爾關鍵點
+# 定義取自統一回測（strategy_compare/analyze.py 的「7 利弗莫爾關鍵點」）：
+#   收盤 ≥ 前 120 個交易日的最高收盤（停牌日以前收補，窗內有缺值則不成立）
+#   且 當日量 ≥ 前 20 日均量（不含當日）x 1.5
+#   且 流動性：前 20 日均量 ≥ 150 張；收盤、成交量有效；非除權息日
+#   且 前 20 個交易日內沒有出現過同條件（去重）。不設股本上限，不排除漲停。
+LIV_LOOK, LIV_AVG, LIV_VX, LIV_MIN_AVG, LIV_DEDUP = 120, 20, 1.5, 150_000, 20
+
+
+def _ffill(X):
+    n = X.shape[1]
+    idx = np.where(~np.isnan(X), np.arange(n), 0)
+    np.maximum.accumulate(idx, axis=1, out=idx)
+    return X[np.arange(X.shape[0])[:, None], idx]
+
+
+def _prior_roll(X, w, fn):
+    """out[:, t] = fn(X[:, t-w:t])（不含 t）；t < w 為 NaN。"""
+    from numpy.lib.stride_tricks import sliding_window_view
+    out = np.full(X.shape, np.nan)
+    if X.shape[1] > w:
+        out[:, w:] = fn(sliding_window_view(X, w, axis=1), axis=2)[:, :-1]
+    return out
+
+
+def livermore_matrix(store: dict, codes: list[str], extra_cols: int = 0):
+    """回傳 (raw 布林矩陣, mx120, avg20, Cf)；欄＝store 陣列的各日（可含尾端空的今日欄）。"""
+    C = np.vstack([store[c]["c"] for c in codes])
+    V = np.vstack([store[c]["v"] for c in codes])
+    XR = np.vstack([store[c]["xr"] for c in codes])
+    Cf = _ffill(C)
+    avg20 = _prior_roll(np.nan_to_num(V), LIV_AVG, np.mean)
+    mx120 = _prior_roll(Cf, LIV_LOOK, np.max)
+    with np.errstate(invalid="ignore"):
+        raw = ((C >= mx120) & (V >= LIV_VX * avg20) & (avg20 >= LIV_MIN_AVG) & ~np.isnan(C)
+               & (np.nan_to_num(V) > 0) & ~XR)
+    return raw, mx120, avg20, Cf
+
+
+def livermore_day(store: dict, dates: list[str], d: str):
+    """收盤版：回傳日期 d 的訊號 [(code, name, exch)]。需要 store 涵蓋 d 以前至少 140 個交易日。"""
+    codes = sorted(store)
+    raw, _, _, _ = livermore_matrix(store, codes)
+    t = dates.index(d)
+    if t < LIV_LOOK + LIV_DEDUP:
+        return []
+    sig = raw[:, t] & ~raw[:, t - LIV_DEDUP:t].any(axis=1)
+    return [(c, store[c]["name"], store[c]["exch"]) for c, s in zip(codes, sig) if s]
