@@ -8,5 +8,5 @@ cp data/picks/*.json _site/data/picks/        # includes intraday.json when the 
 python3 scripts/build_hist.py _site/data/hist
 if [ -f data/us.json ]; then cp data/us.json _site/data/; cp data/us_hist/*.json _site/data/hist/; fi
 du -sh _site/data/hist
-mkdir -p _site/data/fear && cp data/fear/tw.json data/fear/us.json data/fear/sox.json _site/data/fear/ 2>/dev/null || true
+mkdir -p _site/data/fear && cp data/fear/tw.json data/fear/us.json data/fear/sox.json data/fear/margin.json _site/data/fear/ 2>/dev/null || true
 touch _site/.nojekyll

@@ -37,7 +37,7 @@ OUT = os.path.join(ROOT, "data", "fear")
 CSV = os.path.join(OUT, "tw_ind.csv")
 DAYS = os.path.join(ROOT, "cache_fear", "days")
 SEED = os.path.join(ROOT, "seed", "fear_tw_seed.json.gz")
-COLS = ["date", "taiex", "ld_day", "low_day", "a200", "mm", "ld_n", "n_traded", "low_n", "n_have", "a200_n", "a200_den"]
+COLS = ["date", "taiex", "ld_day", "low_day", "a200", "mm", "ld_n", "n_traded", "low_n", "n_have", "a200_n", "a200_den", "mm_l", "mm_o", "otc"]
 WINDOW = 252
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -73,20 +73,44 @@ def fnum(x):
 
 
 # ------------------------------------------------------------------ 計算
-def maintenance(day):
-    """推估融資維持率 = Σ(各股融資餘額張數 × 1000 × 收盤) ÷ (上市＋上櫃融資金額) × 100。"""
+def maintenance(day, split=False):
+    """推估融資維持率 = Σ(各股融資餘額張數 × 1000 × 收盤) ÷ 融資金額 × 100。
+    split=False：上市＋上櫃合計；split=True：回傳 (上市, 上櫃)。"""
     if not day.get("mt") or not day.get("mo"):
-        return None
+        return (None, None) if split else None
     p = day["p"]
-    mv, loan = 0.0, 0.0
+    parts = []
     for key in ("mt", "mo"):
         ln, bal = day[key]
-        loan += ln
+        mv = 0.0
         for code, b in bal.items():
             r = p.get(code)
             if r and r[0]:
                 mv += b * 1000 * r[0]
+        parts.append((mv, ln))
+    if split:
+        return tuple(round(mv / ln * 100, 4) if ln else None for mv, ln in parts)
+    mv, loan = sum(x[0] for x in parts), sum(x[1] for x in parts)
     return round(mv / loan * 100, 4) if loan else None
+
+
+def otc_close(date):
+    """櫃買指數收盤：取同一個流程先算好的 data/latest.json 或 data/days。"""
+    for path in (os.path.join(ROOT, "data", "days", f"{date}.json"), os.path.join(ROOT, "data", "latest.json")):
+        try:
+            j = json.load(open(path, encoding="utf-8"))
+        except Exception:
+            continue
+        if path.endswith("latest.json"):
+            if j.get("date") == date:
+                for r in j.get("indices") or []:
+                    if r.get("symbol") == "OTC":
+                        return r.get("close")
+        else:
+            v = (j.get("i") or {}).get("OTC")
+            if v and len(v) > 3 and v[3]:
+                return v[3]
+    return None
 
 
 def row_for(window_days, date):
@@ -112,6 +136,8 @@ def row_for(window_days, date):
     b["date"] = date
     b["taiex"] = window_days[-1].get("taiex")
     b["mm"] = maintenance(window_days[-1])
+    b["mm_l"], b["mm_o"] = maintenance(window_days[-1], split=True)
+    b["otc"] = otc_close(date)
     if len(window_days) < WINDOW:
         b["low_day"] = None
     if len(window_days) < 200:
@@ -266,6 +292,21 @@ def build(src):
 
 
 # ------------------------------------------------------------------ json
+def write_margin_json(rows):
+    """首頁「融資維持率趨勢」用：上市（配加權指數）、上櫃（配櫃買指數）。"""
+    out = {"d": [], "taiex": [], "otc": [], "mm_l": [], "mm_o": []}
+    for r in rows:
+        if not r.get("mm_l") and not r.get("mm_o"):
+            continue
+        out["d"].append(r["date"])
+        for k, nd in (("taiex", 2), ("otc", 2), ("mm_l", 1), ("mm_o", 1)):
+            v = fnum(r.get(k))
+            out[k].append(None if math.isnan(v) else round(v, nd))
+    json.dump(out, open(os.path.join(OUT, "margin.json"), "w"), separators=(",", ":"))
+    if out["d"]:
+        log(f"margin: {out['d'][-1]} 上市 {out['mm_l'][-1]} 上櫃 {out['mm_o'][-1]}")
+
+
 def make_json(rows):
     dates = [r["date"] for r in rows]
     taiex = np.array([fnum(r["taiex"]) for r in rows])
@@ -284,6 +325,7 @@ def make_json(rows):
         dict(key="a200", name="站上 200 日線的比例", desc="收盤在 200 日均線之上的股票占比，越低越恐慌", unit="%", dec=1, values=a200, sign=-1),
         dict(key="mm", name="大盤推估融資維持率", desc="上市、上櫃依融資金額加權；越低代表融資戶越接近追繳", unit="%", dec=1, values=mm, sign=-1),
     ]
+    write_margin_json(rows)
     j = F.market_json("tw", "台股恐慌度", "加權指數", dates, taiex, comps, asof_note="收盤")
     os.makedirs(OUT, exist_ok=True)
     json.dump(j, open(os.path.join(OUT, "tw.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
