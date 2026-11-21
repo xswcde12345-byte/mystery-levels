@@ -38,6 +38,8 @@ CSV = os.path.join(OUT, "tw_ind.csv")
 DAYS = os.path.join(ROOT, "cache_fear", "days")
 SEED = os.path.join(ROOT, "seed", "fear_tw_seed.json.gz")
 COLS = ["date", "taiex", "ld_day", "low_day", "a200", "mm", "ld_n", "n_traded", "low_n", "n_have", "a200_n", "a200_den", "mm_l", "mm_o", "otc"]
+COST_PATH = os.path.join(OUT, "margin_cost.json")
+MARGIN_RATIO = 0.6  # 上市／上櫃法定融資成數上限（2014-11-10 起上櫃也是 60%）
 WINDOW = 252
 TZ = ZoneInfo("Asia/Taipei")
 
@@ -73,9 +75,17 @@ def fnum(x):
 
 
 # ------------------------------------------------------------------ 計算
+def is_common_sec(code, r):
+    """普通股：日檔 flag（is_common）為準；沒有 flag 時用四碼非 0 開頭代號。"""
+    if r and len(r) > 4:
+        return bool(r[4])
+    return bool(re.fullmatch(r"[1-9]\d{3}", str(code)))
+
+
 def maintenance(day, split=False):
     """推估融資維持率 = Σ(各股融資餘額張數 × 1000 × 收盤) ÷ 融資金額 × 100。
-    split=False：上市＋上櫃合計；split=True：回傳 (上市, 上櫃)。"""
+    含 ETF 等全部可融資標的（恐慌指數用這個，才能跟原始網站對上）。
+    split=False：上市＋上櫃合計；split=True：回傳 (上市, 上櫃) 全市場值。"""
     if not day.get("mt") or not day.get("mo"):
         return (None, None) if split else None
     p = day["p"]
@@ -92,6 +102,65 @@ def maintenance(day, split=False):
         return tuple(round(mv / ln * 100, 4) if ln else None for mv, ln in parts)
     mv, loan = sum(x[0] for x in parts), sum(x[1] for x in parts)
     return round(mv / loan * 100, 4) if loan else None
+
+
+def load_costs():
+    try:
+        return json.load(open(COST_PATH))
+    except Exception:
+        return {"date": None, "l": {}, "o": {}}
+
+
+def save_costs(costs):
+    os.makedirs(OUT, exist_ok=True)
+    json.dump(costs, open(COST_PATH, "w"), separators=(",", ":"))
+
+
+def maintenance_ex_etf(day, costs):
+    """普通股融資維持率（首頁圖用）。
+
+    分子：只加總普通股的融資餘額 × 1000 × 收盤。
+    分母：官方融資金額（含 ETF）減去非普通股的估借款。
+    官方沒有公布各檔融資金額，所以 ETF／ETN／受益證券／TDR／特別股的借款
+    用「餘額張數 × 1000 × 平均成本 × 60%（法定成數上限）」估算。
+    平均成本由每日餘額變化與收盤價滾動推估：餘額增加視為以當日收盤買進，
+    餘額減少不改成本。costs 會就地更新，結構 {l:{code:[cost,qty]}, o:{...}}。
+    """
+    p = day["p"]
+    out = []
+    for ex, key in (("l", "mt"), ("o", "mo")):
+        if not day.get(key):
+            out.append(None)
+            continue
+        loan, bal = day[key]
+        book = costs.setdefault(ex, {})
+        mv_stk = 0.0
+        loan_ex = 0.0
+        live = set()
+        for code, b in bal.items():
+            if not b:
+                continue
+            r = p.get(code)
+            if not r or not r[0]:
+                continue
+            px = r[0]
+            if is_common_sec(code, r):
+                mv_stk += b * 1000 * px
+                continue
+            live.add(code)
+            prev = book.get(code)
+            if not prev:
+                book[code] = [px, b]
+            elif b > prev[1]:
+                book[code] = [(prev[0] * prev[1] + px * (b - prev[1])) / b, b]
+            else:
+                book[code] = [prev[0], b]
+            loan_ex += b * 1000 * book[code][0] * MARGIN_RATIO
+        for code in [c for c in book if c not in live]:
+            book.pop(code)
+        denom = loan - loan_ex
+        out.append(round(mv_stk / denom * 100, 4) if denom > 0 else None)
+    return tuple(out)
 
 
 def otc_close(date):
@@ -136,7 +205,6 @@ def row_for(window_days, date):
     b["date"] = date
     b["taiex"] = window_days[-1].get("taiex")
     b["mm"] = maintenance(window_days[-1])
-    b["mm_l"], b["mm_o"] = maintenance(window_days[-1], split=True)
     b["otc"] = otc_close(date)
     if len(window_days) < WINDOW:
         b["low_day"] = None
@@ -247,10 +315,16 @@ def daily():
         save_day(key, r)
         win = [load_day(k) for k in need] + [r]
         b = row_for(win, d.isoformat())
+        costs = load_costs()
+        if costs.get("date") and costs["date"] != rows[-1]["date"]:
+            log(f"warn: margin cost snapshot is {costs.get('date')}, csv last is {rows[-1]['date']}")
+        b["mm_l"], b["mm_o"] = maintenance_ex_etf(r, costs)
+        costs["date"] = d.isoformat()
+        save_costs(costs)
         rows.append(b)
         dates.append(key)
         changed = True
-        log(f"{d}: taiex {b['taiex']} ld {b['ld_day']} low {b['low_day']} a200 {b['a200']} mm {b['mm']}")
+        log(f"{d}: taiex {b['taiex']} ld {b['ld_day']} low {b['low_day']} a200 {b['a200']} mm {b['mm']} mm_l {b['mm_l']} mm_o {b['mm_o']}")
         d += dt.timedelta(days=1)
     prune(dates[-(WINDOW + 10):])
     return finish(rows, changed)
@@ -276,10 +350,18 @@ def build(src):
         if len(days) > WINDOW:
             days.pop(0)
         iso = f"{d[:4]}-{d[4:6]}-{d[6:]}"
-        rows.append(row_for(days, iso))
+        row = row_for(days, iso)
+        if "costs" not in locals():
+            costs = {"date": None, "l": {}, "o": {}}
+        if day.get("mt") and day.get("mo"):
+            row["mm_l"], row["mm_o"] = maintenance_ex_etf(day, costs)
+            costs["date"] = iso
+        rows.append(row)
         if len(rows) % 250 == 0:
             log(f"{iso} {rows[-1]}")
     write_csv(rows)
+    if "costs" in locals():
+        save_costs(costs)
     # 最近的日檔放進快取並寫 seed
     os.makedirs(DAYS, exist_ok=True)
     keep = [os.path.basename(f)[:8] for f in files[-(WINDOW + 8):]]
@@ -293,8 +375,10 @@ def build(src):
 
 # ------------------------------------------------------------------ json
 def write_margin_json(rows):
-    """首頁「融資維持率趨勢」用：上市（配加權指數）、上櫃（配櫃買指數）。"""
-    out = {"d": [], "taiex": [], "otc": [], "mm_l": [], "mm_o": []}
+    """首頁「融資維持率趨勢」用：上市（配加權指數）、上櫃（配櫃買指數），已扣除 ETF 等非普通股。"""
+    out = {"d": [], "taiex": [], "otc": [], "mm_l": [], "mm_o": [],
+           "ex_etf": True,
+           "note": "已扣除 ETF、ETN、受益證券、TDR、特別股等非普通股。官方只公布全市場融資金額，非普通股借款以餘額張數×平均成本×60%估算後從分子分母扣除。"}
     for r in rows:
         if not r.get("mm_l") and not r.get("mm_o"):
             continue
@@ -334,9 +418,38 @@ def make_json(rows):
         log(f"   {r['name']}: {r['value']} pct {r['pct']}")
 
 
+def rebuild_split_margin(src):
+    """只重算 mm_l / mm_o（已扣 ETF），不重跑廣度。mm（全市場、恐慌指數用）不動。"""
+    files = {os.path.basename(f)[:8]: f for f in glob.glob(os.path.join(src, "*.json"))}
+    rows = read_csv()
+    if not rows:
+        log("no tw_ind.csv")
+        return 1
+    costs = {"date": None, "l": {}, "o": {}}
+    n = 0
+    for r in rows:
+        key = r["date"].replace("-", "")
+        f = files.get(key)
+        if not f:
+            continue
+        day = json.load(open(f))
+        if not day.get("mt") or not day.get("mo"):
+            continue
+        r["mm_l"], r["mm_o"] = maintenance_ex_etf(day, costs)
+        costs["date"] = r["date"]
+        n += 1
+    write_csv(rows)
+    save_costs(costs)
+    log(f"rebuild-margin: {n} days, last {costs['date']} 上市 {rows[-1].get('mm_l')} 上櫃 {rows[-1].get('mm_o')}")
+    make_json(rows)
+    return 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--build":
         build(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "--rebuild-margin":
+        sys.exit(rebuild_split_margin(sys.argv[2]))
     elif len(sys.argv) > 1 and sys.argv[1] == "--json-only":
         make_json(read_csv())
     else:
