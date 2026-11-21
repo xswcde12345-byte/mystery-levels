@@ -37,7 +37,7 @@ OUT = os.path.join(ROOT, "data", "fear")
 CSV = os.path.join(OUT, "tw_ind.csv")
 DAYS = os.path.join(ROOT, "cache_fear", "days")
 SEED = os.path.join(ROOT, "seed", "fear_tw_seed.json.gz")
-COLS = ["date", "taiex", "ld_day", "low_day", "a200", "mm", "ld_n", "n_traded", "low_n", "n_have", "a200_n", "a200_den", "mm_l", "mm_o", "otc"]
+COLS = ["date", "taiex", "ld_day", "low_day", "a200", "mm", "ld_n", "n_traded", "low_n", "n_have", "a200_n", "a200_den", "mm_l", "mm_o", "otc", "loan_l", "loan_o"]
 COST_PATH = os.path.join(OUT, "margin_cost.json")
 MARGIN_RATIO = 0.6  # 上市／上櫃法定融資成數上限（2014-11-10 起上櫃也是 60%）
 WINDOW = 252
@@ -75,6 +75,14 @@ def fnum(x):
 
 
 # ------------------------------------------------------------------ 計算
+
+def official_loans(day):
+    """證交所／櫃買公布的融資金額（元，含 ETF 等全部可融資標的）。"""
+    def one(key):
+        v = (day.get(key) or [None])[0]
+        return float(v) if v else None
+    return one("mt"), one("mo")
+
 def is_common_sec(code, r):
     """普通股：日檔 flag（is_common）為準；沒有 flag 時用四碼非 0 開頭代號。"""
     if r and len(r) > 4:
@@ -319,6 +327,7 @@ def daily():
         if costs.get("date") and costs["date"] != rows[-1]["date"]:
             log(f"warn: margin cost snapshot is {costs.get('date')}, csv last is {rows[-1]['date']}")
         b["mm_l"], b["mm_o"] = maintenance_ex_etf(r, costs)
+        b["loan_l"], b["loan_o"] = official_loans(r)
         costs["date"] = d.isoformat()
         save_costs(costs)
         rows.append(b)
@@ -355,6 +364,7 @@ def build(src):
             costs = {"date": None, "l": {}, "o": {}}
         if day.get("mt") and day.get("mo"):
             row["mm_l"], row["mm_o"] = maintenance_ex_etf(day, costs)
+            row["loan_l"], row["loan_o"] = official_loans(day)
             costs["date"] = iso
         rows.append(row)
         if len(rows) % 250 == 0:
@@ -376,9 +386,9 @@ def build(src):
 # ------------------------------------------------------------------ json
 def write_margin_json(rows):
     """首頁「融資維持率趨勢」用：上市（配加權指數）、上櫃（配櫃買指數），已扣除 ETF 等非普通股。"""
-    out = {"d": [], "taiex": [], "otc": [], "mm_l": [], "mm_o": [],
-           "ex_etf": True,
-           "note": "已扣除 ETF、ETN、受益證券、TDR、特別股等非普通股。官方只公布全市場融資金額，非普通股借款以餘額張數×平均成本×60%估算後從分子分母扣除。"}
+    out = {"d": [], "taiex": [], "otc": [], "mm_l": [], "mm_o": [], "loan_l": [], "loan_o": [],
+           "ex_etf": True, "loan_official": True,
+           "note": "維持率已扣除 ETF、ETN、受益證券、TDR、特別股等非普通股。融資餘額為證交所／櫃買公布的融資金額（含 ETF），單位億元。"}
     for r in rows:
         if not r.get("mm_l") and not r.get("mm_o"):
             continue
@@ -386,9 +396,12 @@ def write_margin_json(rows):
         for k, nd in (("taiex", 2), ("otc", 2), ("mm_l", 1), ("mm_o", 1)):
             v = fnum(r.get(k))
             out[k].append(None if math.isnan(v) else round(v, nd))
+        for k in ("loan_l", "loan_o"):
+            v = fnum(r.get(k))
+            out[k].append(None if math.isnan(v) else round(v / 1e8, 2))  # 億元
     json.dump(out, open(os.path.join(OUT, "margin.json"), "w"), separators=(",", ":"))
     if out["d"]:
-        log(f"margin: {out['d'][-1]} 上市 {out['mm_l'][-1]} 上櫃 {out['mm_o'][-1]}")
+        log(f"margin: {out['d'][-1]} 上市 {out['mm_l'][-1]}% 餘額 {out['loan_l'][-1]}億  上櫃 {out['mm_o'][-1]}% 餘額 {out['loan_o'][-1]}億")
 
 
 def make_json(rows):
@@ -436,11 +449,12 @@ def rebuild_split_margin(src):
         if not day.get("mt") or not day.get("mo"):
             continue
         r["mm_l"], r["mm_o"] = maintenance_ex_etf(day, costs)
+        r["loan_l"], r["loan_o"] = official_loans(day)
         costs["date"] = r["date"]
         n += 1
     write_csv(rows)
     save_costs(costs)
-    log(f"rebuild-margin: {n} days, last {costs['date']} 上市 {rows[-1].get('mm_l')} 上櫃 {rows[-1].get('mm_o')}")
+    log(f"rebuild-margin: {n} days, last {costs['date']} 上市 {rows[-1].get('mm_l')} 上櫃 {rows[-1].get('mm_o')} 餘額 {rows[-1].get('loan_l')} {rows[-1].get('loan_o')}")
     make_json(rows)
     return 0
 

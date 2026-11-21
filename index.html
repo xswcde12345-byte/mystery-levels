@@ -351,6 +351,8 @@
     .mmhead .mmr button { font: inherit; font-size: .74rem; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 6px; padding: 1px 7px; cursor: pointer; }
     .mmhead .mmr button[aria-pressed="true"] { border-color: var(--ink); font-weight: 700; }
     .mmbox svg { width: 100%; height: auto; display: block; margin-top: 4px; }
+    .mmloan { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: .86rem; margin-top: 2px; }
+    .mmloan b { font-size: 1.02rem; font-variant-numeric: tabular-nums; }
     .mmnote { color: var(--muted); font-size: .74rem; line-height: 1.45; margin-top: 2px; }
   </style>
 </head>
@@ -478,36 +480,65 @@
   let MM = null; const mmRange = { l: "1y", o: "1y" };
   function drawMM(box) {
     const k = box.dataset.mm, J = MM; if (!J || !J.d.length) return;
-    const ser = J["mm_" + k], idx = J[k === "l" ? "taiex" : "otc"];
+    const ser = J["mm_" + k], idx = J[k === "l" ? "taiex" : "otc"], loan = J["loan_" + k] || [];
     const last = J.d[J.d.length - 1];
     const yrs = { "1y": 1, "3y": 3 }[mmRange[k]];
     let i0 = 0;
     if (yrs) { const t = new Date(last); t.setFullYear(t.getFullYear() - yrs); const s0 = t.toISOString().slice(0, 10); i0 = Math.max(0, J.d.findIndex((d) => d >= s0)); }
     const pts = []; for (let i = i0; i < J.d.length; i++) if (ser[i] != null) pts.push(i);
     if (pts.length < 2) { box.innerHTML = ""; return; }
-    const W = 360, H = 150, PL = 30, PR = 34, PT = 6, PB = 16;
+    const W = 360, H1 = 132, H2 = 72, GAP = 10, PL = 32, PR = 36, PT = 6, PB = 16;
+    const H = PT + H1 + GAP + H2 + PB;
     const n = pts.length, X = (q) => PL + q / (n - 1) * (W - PL - PR);
     const mv = pts.map((i) => ser[i]); let lo = Math.min(125, ...mv), hi = Math.max(165, ...mv);
-    const Y = (v) => PT + (hi - v) / (hi - lo) * (H - PT - PB);
+    const Y = (v) => PT + (hi - v) / (hi - lo) * H1;
     const iv = pts.map((i) => idx[i]).filter((v) => v != null); const il = Math.min(...iv), ih = Math.max(...iv);
-    const YI = (v) => PT + (ih - v) / ((ih - il) || 1) * (H - PT - PB);
-    let g = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="融資維持率趨勢圖">`;
-    [[130, "#c62828", "130% 追繳"], [160, "#b07d12", "160%"]].forEach(([v, c, t]) => {
+    const YI = (v) => PT + (ih - v) / ((ih - il) || 1) * H1;
+    const lv = pts.map((i) => loan[i]).filter((v) => v != null);
+    const hasL = lv.length >= 2;
+    const ll = hasL ? Math.min(...lv) : 0, lh = hasL ? Math.max(...lv) : 1;
+    const pad = hasL ? (lh - ll) * 0.08 || 1 : 1;
+    const YL = (v) => PT + H1 + GAP + (lh + pad - v) / ((lh - ll) + 2 * pad) * H2;
+    let g = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="融資維持率與融資餘額趨勢圖">`;
+    [[130, "#c62828"], [160, "#b07d12"]].forEach(([v, c]) => {
       if (v >= lo && v <= hi) g += `<line x1="${PL}" x2="${W - PR}" y1="${Y(v)}" y2="${Y(v)}" stroke="${c}" stroke-dasharray="4 3" stroke-opacity=".8"/><text x="${PL - 3}" y="${Y(v) + 3}" font-size="9" text-anchor="end" fill="${c}">${v}</text>`;
     });
     let pi = ""; pts.forEach((i, q) => { if (idx[i] != null) pi += (pi ? "L" : "M") + X(q).toFixed(1) + "," + YI(idx[i]).toFixed(1); });
     g += `<path d="${pi}" fill="none" stroke="currentColor" stroke-opacity=".35" stroke-width="1.2"/>`;
     g += `<path d="${pts.map((i, q) => (q ? "L" : "M") + X(q).toFixed(1) + "," + Y(ser[i]).toFixed(1)).join("")}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>`;
-    g += `<text x="${W - PR + 3}" y="${PT + 8}" font-size="9" fill="currentColor" fill-opacity=".55">${Math.round(ih).toLocaleString()}</text><text x="${W - PR + 3}" y="${H - PB}" font-size="9" fill="currentColor" fill-opacity=".55">${Math.round(il).toLocaleString()}</text>`;
+    g += `<text x="${W - PR + 3}" y="${PT + 8}" font-size="9" fill="currentColor" fill-opacity=".55">${Math.round(ih).toLocaleString()}</text><text x="${W - PR + 3}" y="${PT + H1}" font-size="9" fill="currentColor" fill-opacity=".55">${Math.round(il).toLocaleString()}</text>`;
+    if (hasL) {
+      const line = pts.map((i, q) => loan[i] == null ? null : `${X(q).toFixed(1)},${YL(loan[i]).toFixed(1)}`);
+      const first = line.findIndex(Boolean);
+      let d = ""; let started = false;
+      pts.forEach((i, q) => {
+        if (loan[i] == null) return;
+        d += (started ? "L" : "M") + line[q]; started = true;
+      });
+      const lastP = [...pts.keys()].reverse().find((q) => loan[pts[q]] != null);
+      const firstP = pts.findIndex((i) => loan[i] != null);
+      const area = `M${X(firstP).toFixed(1)},${YL(ll - pad).toFixed(1)} L${d.slice(1)} L${X(lastP).toFixed(1)},${YL(ll - pad).toFixed(1)} Z`;
+      g += `<path d="${area}" fill="#3d6a8a" fill-opacity=".22"/>`;
+      g += `<path d="${d}" fill="none" stroke="#3d6a8a" stroke-width="1.5"/>`;
+      const yfmt = (v) => (v >= 100 ? Math.round(v).toLocaleString("zh-TW") : v.toFixed(0));
+      g += `<text x="${PL - 3}" y="${PT + H1 + GAP + 8}" font-size="9" text-anchor="end" fill="#3d6a8a">${yfmt(lh)}</text>`;
+      g += `<text x="${PL - 3}" y="${PT + H1 + GAP + H2}" font-size="9" text-anchor="end" fill="#3d6a8a">${yfmt(ll)}</text>`;
+      g += `<text x="${W - PR + 3}" y="${PT + H1 + GAP + 8}" font-size="9" fill="#3d6a8a" fill-opacity=".85">億</text>`;
+    }
     const y0 = J.d[pts[0]].slice(0, 7).replace("-", "/"), y1 = last.slice(0, 7).replace("-", "/");
     g += `<text x="${PL}" y="${H - 3}" font-size="9" fill="currentColor" fill-opacity=".55">${y0}</text><text x="${W - PR}" y="${H - 3}" font-size="9" text-anchor="end" fill="currentColor" fill-opacity=".55">${y1}</text></svg>`;
     const cur = ser[pts[n - 1]], prv = ser[pts[n - 2]], ch = cur - prv;
     const col = cur < 130 ? "#c62828" : cur < 160 ? "#b07d12" : "var(--accent)";
+    const li = pts[n - 1], lj = pts[n - 2];
+    const lcur = loan[li], lprv = loan[lj];
+    const lch = (lcur != null && lprv != null) ? lcur - lprv : null;
+    const lfmt = (v) => Math.round(v).toLocaleString("zh-TW");
+    const lrow = lcur == null ? "" : `<div class="mmloan"><span>融資餘額（官方，含 ETF）</span><b style="color:#3d6a8a">${lfmt(lcur)} 億</b>${lch == null ? "" : `<span class="${lch >= 0 ? "up" : "down"}" style="font-size:.8rem">${lch >= 0 ? "+" : "−"}${lfmt(Math.abs(lch))}</span>`}</div>`;
     box.innerHTML = `<div class="mmhead"><span>${k === "l" ? "上市" : "上櫃"}融資維持率（已扣 ETF）</span><b style="color:${col}">${cur.toFixed(1)}%</b>
       <span class="${ch >= 0 ? "up" : "down"}" style="font-size:.8rem">${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(1)}</span><span style="color:var(--muted);font-size:.76rem">${md(J.d[pts[n - 1]])}</span>
-      <span class="mmr">${["1y", "3y", "all"].map((r) => `<button type="button" data-r="${r}" aria-pressed="${r === mmRange[k]}">${{ "1y": "1年", "3y": "3年", all: "全部" }[r]}</button>`).join("")}</span></div>${g}
-      <div class="mmnote">綠線＝普通股融資維持率（左軸，已扣除 ETF、ETN、受益證券、TDR、特別股），灰線＝${k === "l" ? "加權指數" : "櫃買指數"}（右側為區間高低）。白話：融資戶的普通股市值是借款的幾倍，越低越接近 130% 追繳線，跌破時常有斷頭賣壓。官方只公布全市場融資金額、沒有拆到各檔，所以非普通股的借款是用該檔融資餘額的平均成本（由每日餘額變化與收盤價推估）× 法定成數 60% 估算後，從分子和分母一併扣除。每天收盤後更新。</div>`;
-    box.onclick = (e) => e.stopPropagation();   // 點趨勢圖不要開日線圖
+      <span class="mmr">${["1y", "3y", "all"].map((r) => `<button type="button" data-r="${r}" aria-pressed="${r === mmRange[k]}">${{ "1y": "1年", "3y": "3年", all: "全部" }[r]}</button>`).join("")}</span></div>${lrow}${g}
+      <div class="mmnote">上圖綠線＝普通股融資維持率（左軸，已扣除 ETF 等非普通股），灰線＝${k === "l" ? "加權指數" : "櫃買指數"}（右軸為區間高低）；下圖藍線＝官方融資餘額（億元，含 ETF）。白話：維持率是融資戶普通股市值是借款的幾倍，越低越接近 130% 追繳線，跌破時常有斷頭賣壓；餘額是市場上還沒還的融資借款總額，用證交所、櫃買公布的融資金額（沒有拆掉 ETF）。每天收盤後更新。</div>`;
+    box.onclick = (e) => e.stopPropagation();
     box.querySelectorAll(".mmr button").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); mmRange[k] = b.dataset.r; drawMM(box); }));
   }
   function loadMM() {
