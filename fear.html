@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#1c2422">
-  <meta name="description" content="台股、美股大盤、費半恐慌度：每個指標在近 5 年的百分位平均，每天收盤後自動更新。僅供個人參考，非投資建議。">
-  <title>市場恐慌度｜台股・美股・費半</title>
+  <meta name="description" content="台股、美股標普500、納指、費半恐慌度：每個指標在近 5 年的百分位平均，每天收盤後自動更新。僅供個人參考，非投資建議。">
+  <title>市場恐慌度｜台股・標普500・納指・費半</title>
   <link rel="icon" href="data:,">
   <style>
     :root {
@@ -130,7 +130,8 @@
       <h2>資料來源與限制</h2>
       <ul class="note" style="padding-left:1.2em;margin:0">
         <li>台股：證交所每日收盤行情（全部證券，含 ETF）與加權指數、櫃買中心上櫃收盤行情、證交所與櫃買中心融資融券餘額。價格未還原權息；跌停以前一日參考價 ×0.9 依升降單位計算。台股資料從 2015 年 6 月起算（漲跌幅限制 10% 之後），2021 年以前的百分位能比較的歷史不到 5 年，那幾年的分數和「過去怎麼走」只能粗略參考，樣本也比美股短。跟原始網站相比，台股總分平均差約 1.4 分。</li>
-        <li>美股大盤：SPY 還原權息收盤（Yahoo Finance）、Cboe 官方 VIX 與 3 個月 VIX、聖路易聯準銀行金融壓力指數（FRED，每週公布）。</li>
+        <li>美股標普500：SPY 還原權息收盤（Yahoo Finance）、Cboe 官方 VIX 與 3 個月 VIX、聖路易聯準銀行金融壓力指數（FRED，每週公布）。這組跟對照網站的美股大盤算法一致。</li>
+        <li>美股納指：這是依標普500同一套方法自建的，對照網站沒有納指恐慌度。用 Cboe VXN、QQQ 還原權息收盤（Yahoo Finance），以及同一套金融壓力指數。沒有公開且夠長的「3 個月 VXN」，所以沒有期限結構。</li>
         <li>費半：費城半導體指數、那斯達克綜合指數（Yahoo Finance）、Cboe VXN。</li>
         <li>台指 VIX、選擇權 Put/Call 比、散戶多空比本頁未收錄。</li>
       </ul>
@@ -143,7 +144,8 @@
 <script>
 const MK = [
   {key:'tw', label:'台股', file:'data/fear/tw.json'},
-  {key:'us', label:'美股大盤', file:'data/fear/us.json'},
+  {key:'us', label:'標普500', file:'data/fear/us.json'},
+  {key:'nasdaq', label:'納指', file:'data/fear/nasdaq.json'},
   {key:'sox', label:'費半', file:'data/fear/sox.json'},
 ];
 const D = {};
@@ -212,7 +214,7 @@ function select(k) {
   $('comp-title').textContent = j.name + '怎麼算出來的';
   $('comp-meta').textContent = '資料到 ' + ymd(j.asof);
   const top = j.top.map(t => `${t.name.replace(/\(.*\)/, '')}(第 ${t.pct} 百分位)`).join('、');
-  $('comp-sum').innerHTML = `總分 <b>${j.score}</b>（${j.band}）${j.prev ? '，前一日 ' + j.prev.score : ''}。拉最高的是${esc(top)}。`;
+  $('comp-sum').innerHTML = `總分 <b>${j.score}</b>（${j.band}）${j.prev ? '，前一日 ' + j.prev.score : ''}。拉最高的是${esc(top)}。` + (j.construct_note ? `<div class="plain" style="margin-top:8px"><b>怎麼來的</b>　${esc(j.construct_note)}</div>` : '');
   $('comp-tbl').innerHTML = tableRows(j.components, false);
   $('ref-wrap').hidden = !j.refs.length;
   if (j.refs.length) $('ref-tbl').innerHTML = tableRows(j.refs, true);

@@ -78,10 +78,10 @@ def decide_fear_us() -> tuple[bool, str]:
     import us_calendar as uc
     want = uc.last_completed_session().isoformat()
     try:
-        have = min(json.load(open(f"data/fear/{k}.json", encoding="utf-8"))["asof"] for k in ("us", "sox"))
+        have = min(json.load(open(f"data/fear/{k}.json", encoding="utf-8"))["asof"] for k in ("us", "sox", "nasdaq"))
     except Exception as e:
-        return True, f"no fear us/sox json ({e})"
-    return (have < want), f"fear us/sox asof {have}, want {want}"
+        return True, f"no fear us/sox/nasdaq json ({e})"
+    return (have < want), f"fear us/sox/nasdaq asof {have}, want {want}"
 
 
 run, why = decide()

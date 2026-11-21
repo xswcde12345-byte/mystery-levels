@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""美股大盤恐慌度、費半恐慌度 → data/fear/us.json、data/fear/sox.json。
+"""美股標普500恐慌度、納指恐慌度、費半恐慌度 → data/fear/us.json、nasdaq.json、sox.json。
 
 資料：Yahoo Finance（SPY 還原權息、^SOX、^IXIC）、Cboe 官方 CSV（VIX、VIX3M、VXN；Yahoo 備援）、
 FRED（聖路易聯準銀行金融壓力指數 STLFSI4，每週；抓不到就用 repo 內上次存的）。只用已收盤的交易日。
@@ -148,13 +148,13 @@ def align(dates, series, ffill=False):
 def main():
     done = uc.last_completed_session().isoformat()
     log(f"last completed US session: {done}")
-    spy, sox, ixic = yahoo("SPY", adj=True), yahoo("%5ESOX"), yahoo("%5EIXIC")
+    spy, sox, ixic, qqq = yahoo("SPY", adj=True), yahoo("%5ESOX"), yahoo("%5EIXIC"), yahoo("QQQ", adj=True)
     vix = {**yahoo("%5EVIX"), **cboe("VIX")}
     v3 = {**yahoo("%5EVIX3M"), **cboe("VIX3M")}
     vxn = {**yahoo("%5EVXN"), **cboe("VXN")}
     fs = fsi()
     res = {}
-    # ---------- 美股大盤
+    # ---------- 美股標普500
     if len(spy) > 3000:
         d = sorted(k for k in spy if "1994-01-01" <= k <= done)
         c = np.array([spy[k] for k in d])
@@ -166,7 +166,20 @@ def main():
             dict(key="dd", name="標普 500 離近一年高點", desc="SPY 比近 252 個交易日的最高點低幾 %", unit="%", dec=1, values=F.off_high(c), sign=-1),
             dict(key="fsi", name="金融壓力指數(聖路易聯準銀行，每週)", desc="18 個利率、利差、波動率合成；0 = 長期平均，正數 = 壓力高於平均", unit="pt", dec=2, values=align(d, fs, ffill=True)),
         ]
-        res["us"] = F.market_json("us", "美股大盤恐慌度", "標普 500(SPY)", d, c, comps, asof_note="美東收盤", stats_from="2000-01-01")
+        res["us"] = F.market_json("us", "美股標普500恐慌度", "標普 500(SPY)", d, c, comps, asof_note="美東收盤", stats_from="2000-01-01")
+    # ---------- 納指（自建，toalpha 沒有這一項）
+    # 沒有公開且夠長的「3 個月 VXN」，所以沒有期限結構；其餘對齊標普500：VXN、QQQ 20 日波動、QQQ 離一年高點、同一套金融壓力指數。
+    if len(qqq) > 2000 and len(vxn) > 2000:
+        d = sorted(k for k in qqq if "2001-01-23" <= k <= done)
+        c = np.array([qqq[k] for k in d])
+        comps = [
+            dict(key="vxn", name="VXN", desc="那斯達克100選擇權算出的未來 30 天預期波動，科技股版的 VIX", unit="pt", dec=2, values=align(d, vxn)),
+            dict(key="rv", name="那斯達克100實際波動(近 20 日，年化)", desc="QQQ 還原權息每天報酬的標準差，換成年化", unit="%", dec=1, values=F.realized_vol(c)),
+            dict(key="dd", name="那斯達克100離近一年高點", desc="QQQ 比近 252 個交易日的最高點低幾 %", unit="%", dec=1, values=F.off_high(c), sign=-1),
+            dict(key="fsi", name="金融壓力指數(聖路易聯準銀行，每週)", desc="18 個利率、利差、波動率合成；與標普500共用，是全市場壓力、不是納指專屬。0 = 長期平均，正數 = 壓力高於平均", unit="pt", dec=2, values=align(d, fs, ffill=True)),
+        ]
+        res["nasdaq"] = F.market_json("nasdaq", "美股納指恐慌度", "那斯達克100(QQQ)", d, c, comps, asof_note="美東收盤", stats_from="2001-01-23")
+        res["nasdaq"]["construct_note"] = "這是依標普500同一套方法自建的納指恐慌度，不是對照網站的數字。波動用那斯達克100的 VXN，價格與實際波動用 QQQ（還原權息），因為 QQQ 對應標普的 SPY，而且 VXN 本來就是那斯達克100的波動率。沒有公開且夠長的「3 個月 VXN」，所以沒有期限結構那一項。"
     # ---------- 費半
     if len(sox) > 3000:
         d = sorted(k for k in sox if k <= done)
@@ -194,7 +207,7 @@ def main():
         log(f"{k}: {v['asof']} score {v['score']} ({v['score_raw']}) {v['band']} | prev {v['prev']} week {v['week']} month {v['month']}")
         for r in v["components"]:
             log(f"   {r['name']}: {r['value']} pct {r['pct']}")
-    return 0 if len(res) == 2 else 1
+    return 0 if len(res) == 3 else 1
 
 
 if __name__ == "__main__":
