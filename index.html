@@ -534,10 +534,10 @@
     const lch = (lcur != null && lprv != null) ? lcur - lprv : null;
     const lfmt = (v) => Math.round(v).toLocaleString("zh-TW");
     const lrow = lcur == null ? "" : `<div class="mmloan"><span>融資餘額（官方，含 ETF）</span><b style="color:#3d6a8a">${lfmt(lcur)} 億</b>${lch == null ? "" : `<span class="${lch >= 0 ? "up" : "down"}" style="font-size:.8rem">${lch >= 0 ? "+" : "−"}${lfmt(Math.abs(lch))}</span>`}</div>`;
-    box.innerHTML = `<div class="mmhead"><span>${k === "l" ? "上市" : "上櫃"}融資維持率（已扣 ETF）</span><b style="color:${col}">${cur.toFixed(1)}%</b>
+    box.innerHTML = `<div class="mmhead"><span>${k === "l" ? "上市" : "上櫃"}融資維持率</span><b style="color:${col}">${cur.toFixed(1)}%</b>
       <span class="${ch >= 0 ? "up" : "down"}" style="font-size:.8rem">${ch >= 0 ? "+" : "−"}${Math.abs(ch).toFixed(1)}</span><span style="color:var(--muted);font-size:.76rem">${md(J.d[pts[n - 1]])}</span>
       <span class="mmr">${["1y", "3y", "all"].map((r) => `<button type="button" data-r="${r}" aria-pressed="${r === mmRange[k]}">${{ "1y": "1年", "3y": "3年", all: "全部" }[r]}</button>`).join("")}</span></div>${lrow}${g}
-      <div class="mmnote">上圖綠線＝普通股融資維持率（左軸，已扣除 ETF 等非普通股），灰線＝${k === "l" ? "加權指數" : "櫃買指數"}（右軸為區間高低）；下圖藍線＝官方融資餘額（億元，含 ETF）。白話：維持率是融資戶普通股市值是借款的幾倍，越低越接近 130% 追繳線，跌破時常有斷頭賣壓；餘額是市場上還沒還的融資借款總額，用證交所、櫃買公布的融資金額（沒有拆掉 ETF）。每天收盤後更新。</div>`;
+      <div class="mmnote">上圖綠線＝融資維持率（左軸，含 ETF），灰線＝${k === "l" ? "加權指數" : "櫃買指數"}（右軸為區間高低）；下圖藍線＝官方融資餘額（億元，含 ETF）。白話：維持率是融資買進的股票市值是借款的幾倍，越低越接近 130% 追繳線，跌破時常有斷頭賣壓；餘額是市場上還沒還的融資借款總額，用證交所、櫃買公布的融資金額。每天收盤後更新。</div>`;
     box.onclick = (e) => e.stopPropagation();
     box.querySelectorAll(".mmr button").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); mmRange[k] = b.dataset.r; drawMM(box); }));
   }
