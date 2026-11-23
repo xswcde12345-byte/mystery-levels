@@ -104,10 +104,27 @@ def main() -> int:
     os.makedirs(L.OUT, exist_ok=True)
     try:                                              # 利弗莫爾關鍵點（收盤版），失敗不影響其他
         lm = L.livermore_day(store, dates, dates[-1])
-        json.dump(dict(date=iso(dates[-1]), basis="收盤價", rows=[dict(c=c, n=n, m=m) for c, n, m in sorted(lm)],
+        official_u = {}
+        try:
+            import picks_intraday as IDY
+            keys = [f"{'tse' if m == 'L' else 'otc'}_{c}.tw" for c, n, m in lm]
+            if keys:
+                resp, _ = IDY.mis_fetch(keys)
+                for c, n, m in lm:
+                    msg = resp.get(c)
+                    if not msg:
+                        continue
+                    u = IDY.fnum(msg.get("u"))
+                    if u:
+                        official_u[c] = u
+        except Exception as e:
+            L.log(f"picks: MIS limit-up prices unavailable ({e}), using computed 10% cap")
+        kept, excl = L.filter_livermore_limit_up(lm, store, dates, dates[-1], official_u)
+        json.dump(dict(date=iso(dates[-1]), basis="收盤價", rows=[dict(c=c, n=n, m=m) for c, n, m in sorted(kept)],
                        generated_at=dt.datetime.now(ZoneInfo("Asia/Taipei")).isoformat(timespec="seconds")),
                   open(os.path.join(L.OUT, "livermore.json"), "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-        L.log(f"picks: livermore {dates[-1]} -> {len(lm)} stocks")
+        extra = f" (excluded {len(excl)} limit-up: " + " ".join(f"{c}{n}" for c, n, *_ in excl) + ")" if excl else ""
+        L.log(f"picks: livermore {dates[-1]} -> {len(kept)} stocks{extra}")
     except Exception as e:
         L.log(f"picks: livermore failed ({type(e).__name__}: {e})")
     capf = os.path.join(L.CACHE, "caps.json")

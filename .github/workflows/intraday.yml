@@ -1,12 +1,13 @@
 name: Intraday picks
 
-# 選股回查「利弗莫爾關鍵點」盤中名單：台北時間週一至週五 09:07–13:37，約每 15 分鐘一次（UTC = 台北 − 8 小時）。
+# 選股回查「利弗莫爾關鍵點」盤中名單：台北時間週一至週五 09:03–13:23，約每 20 分鐘一次（UTC = 台北 − 8 小時）。
+# 刻意避開整點 :00，減少 GitHub cron 延遲或漏跑。最後一檔 13:23，延遲時仍希望在 13:59 前進場。
 # 獨立於點位更新流程：只掃描利弗莫爾關鍵點、重新部署網站（含盤中名單）。
 # 失敗不會改動點位資料；收盤後主流程部署的網站不含盤中名單，等於由收盤版取代。
 on:
   schedule:
-    - cron: "7,22,37,52 1-4 * * 1-5"   # 台北 09:07 … 12:52
-    - cron: "7,22,37 5 * * 1-5"        # 台北 13:07, 13:22, 13:37
+    - cron: "3,23,43 1-4 * * 1-5"      # 台北 09:03, 09:23, 09:43 … 12:43
+    - cron: "3,23 5 * * 1-5"           # 台北 13:03, 13:23
   workflow_dispatch:
 
 permissions:
@@ -33,7 +34,7 @@ jobs:
         id: gate
         run: |
           NOW=$(TZ=Asia/Taipei date +%H%M); TODAY=$(TZ=Asia/Taipei date +%Y%m%d); DOW=$(TZ=Asia/Taipei date +%u)
-          if [ "$DOW" -ge 6 ] || [ "$NOW" -lt 0900 ] || [ "$NOW" -gt 1350 ]; then
+          if [ "$DOW" -ge 6 ] || [ "$NOW" -lt 0900 ] || [ "$NOW" -gt 1359 ]; then
             echo "gate: outside trading hours ($DOW $NOW)"; echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
           SESS=$(curl -s -m 25 -A "Mozilla/5.0" -H "Referer: https://mis.twse.com.tw/stock/index.jsp" \

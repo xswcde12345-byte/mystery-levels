@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import urllib.parse
+from decimal import Decimal, ROUND_FLOOR
 
 import numpy as np
 
@@ -423,7 +424,8 @@ def prefilter(a, t, p=P):
 #   收盤 ≥ 前 120 個交易日的最高收盤（停牌日以前收補，窗內有缺值則不成立）
 #   且 當日量 ≥ 前 20 日均量（不含當日）x 1.5
 #   且 流動性：前 20 日均量 ≥ 150 張；收盤、成交量有效；非除權息日
-#   且 前 20 個交易日內沒有出現過同條件（去重）。不設股本上限，不排除漲停。
+#   且 前 20 個交易日內沒有出現過同條件（去重）。不設股本上限。
+#   回測與 raw 矩陣不排除漲停（頁面統計沿用此定義）。對外公布的即時／當日收盤名單另外剔除漲停股。
 LIV_LOOK, LIV_AVG, LIV_VX, LIV_MIN_AVG, LIV_DEDUP = 120, 20, 1.5, 150_000, 20
 
 
@@ -457,8 +459,37 @@ def livermore_matrix(store: dict, codes: list[str], extra_cols: int = 0):
     return raw, mx120, avg20, Cf
 
 
+def tick_size(p: float) -> float:
+    return 0.01 if p < 10 else 0.05 if p < 50 else 0.1 if p < 100 else 0.5 if p < 500 else 1.0 if p < 1000 else 5.0
+
+
+def limit_up_price(prev: float) -> float:
+    """參考價 × 1.10，依該金額所在升降單位無條件捨去；若捨去後跨過跳動檔位則改用新檔位再捨一次。
+    處置股、新股等非 10% 幅度，請改傳交易所公布的漲停價。"""
+    raw = Decimal(str(prev)) * Decimal("1.1")
+    tk = Decimal(str(tick_size(float(raw))))
+    lim = (raw / tk).to_integral_value(rounding=ROUND_FLOOR) * tk
+    if any(float(lim) < b <= float(raw) for b in (10, 50, 100, 500, 1000)):
+        tk = Decimal(str(tick_size(float(lim))))
+        lim = (raw / tk).to_integral_value(rounding=ROUND_FLOOR) * tk
+    return float(lim)
+
+
+def is_limit_up(price, official_u=None, prev=None, no_ask=False, bid1=None) -> bool:
+    """現價或收盤價是否達到當日漲停價。優先使用交易所欄位 official_u（如 MIS 的 u）。"""
+    u = official_u if official_u else (limit_up_price(prev) if prev else None)
+    if not u or price is None:
+        return False
+    if price >= u - 1e-6:
+        return True
+    if no_ask and bid1 is not None and bid1 >= u - 1e-6:
+        return True
+    return False
+
+
 def livermore_day(store: dict, dates: list[str], d: str):
-    """收盤版：回傳日期 d 的訊號 [(code, name, exch)]。需要 store 涵蓋 d 以前至少 140 個交易日。"""
+    """收盤版：回傳日期 d 的訊號 [(code, name, exch)]。需要 store 涵蓋 d 以前至少 140 個交易日。
+    含漲停股（與回測定義一致）；對外公布前請再呼叫 filter_livermore_limit_up。"""
     codes = sorted(store)
     raw, _, _, _ = livermore_matrix(store, codes)
     t = dates.index(d)
@@ -466,3 +497,24 @@ def livermore_day(store: dict, dates: list[str], d: str):
         return []
     sig = raw[:, t] & ~raw[:, t - LIV_DEDUP:t].any(axis=1)
     return [(c, store[c]["name"], store[c]["exch"]) for c, s in zip(codes, sig) if s]
+
+
+def filter_livermore_limit_up(hits, store, dates, d, official_u=None):
+    """從已算出的收盤訊號剔除漲停股，不改 raw 矩陣與 20 日去重。
+    official_u: {code: 漲停價}；缺漏時改用昨收 × 1.10 的計算值。
+    回傳 (kept, excluded)，excluded 為 (code, name, exch, close, limit_u)。"""
+    official_u = official_u or {}
+    t = dates.index(d)
+    kept, excluded = [], []
+    for c, n, m in hits:
+        close = store[c]["c"][t]
+        prev = store[c]["c"][t - 1] if t >= 1 else float("nan")
+        close = float(close) if close == close else None
+        prev = float(prev) if prev == prev else None
+        u = official_u.get(c)
+        if is_limit_up(close, official_u=u, prev=prev):
+            used = u if u else (limit_up_price(prev) if prev else None)
+            excluded.append((c, n, m, close, used))
+        else:
+            kept.append((c, n, m))
+    return kept, excluded

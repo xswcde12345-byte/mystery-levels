@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""「利弗莫爾關鍵點」盤中掃描（GitHub Actions 排程，台北 09:07–13:37 約每 15 分鐘）。
+"""「利弗莫爾關鍵點」盤中掃描（GitHub Actions 排程，台北 09:03–13:23 約每 20 分鐘）。
 
 條件（取自統一回測 analyze.py 的定義）：現價創前 120 個交易日最高收盤新高、成交量 ≥ 前 20 日均量 x 1.5、
-前 20 日均量 ≥ 150 張、非除權息日、前 20 個交易日內沒出現過同條件。盤中成交量用「推估全日量」：
+前 20 日均量 ≥ 150 張、非除權息日、前 20 個交易日內沒出現過同條件；現價已漲停的不列入。盤中成交量用「推估全日量」：
 依已交易時間外推（線性與 U 型曲線取較小值）。結果寫 data/picks/intraday.json（不進 git，只隨網站部署）。
 休市日、非盤中時段直接結束並寫 GITHUB_OUTPUT ran=false。
 """
@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 import urllib.parse
-from decimal import ROUND_FLOOR, Decimal
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -87,20 +86,6 @@ def mis_fetch(keys, batch=50, delay=1.5):
     return out, fails
 
 
-def tick_size(p):
-    return 0.01 if p < 10 else 0.05 if p < 50 else 0.1 if p < 100 else 0.5 if p < 500 else 1.0 if p < 1000 else 5.0
-
-
-def limit_up_price(prev):
-    raw = Decimal(str(prev)) * Decimal("1.1")
-    tk = Decimal(str(tick_size(float(raw))))
-    lim = (raw / tk).to_integral_value(rounding=ROUND_FLOOR) * tk
-    if any(float(lim) < b <= float(raw) for b in (10, 50, 100, 500, 1000)):
-        tk = Decimal(str(tick_size(float(lim))))
-        lim = (raw / tk).to_integral_value(rounding=ROUND_FLOOR) * tk
-    return float(lim)
-
-
 def parse_quote(m):
     o, h, l, y = fnum(m.get("o")), fnum(m.get("h")), fnum(m.get("l")), fnum(m.get("y"))
     v = fnum(m.get("v"))
@@ -117,11 +102,11 @@ def parse_quote(m):
         return None
     h = max(h or price, price)
     l = min(l or price, price)
-    u = fnum(m.get("u")) or (limit_up_price(y) if y else None)
+    u = fnum(m.get("u")) or (L.limit_up_price(y) if y else None)
     ask = (m.get("a") or "").split("_")[0].strip()
     bid1 = fnum((m.get("b") or "").split("_")[0])
     no_ask = ask in ("", "-") or fnum(ask) is None
-    limit = bool(u) and (price >= u - 1e-6 or (no_ask and bid1 is not None and bid1 >= u - 1e-6))
+    limit = L.is_limit_up(price, official_u=u, no_ask=no_ask, bid1=bid1)
     return dict(price=price, o=o, h=h, l=l, y=y, v=v * 1000, date=m.get("d"), time=m.get("t") or m.get("%"), limit_up=limit)
 
 
@@ -129,7 +114,7 @@ def main() -> int:
     now = dt.datetime.now(TZ)
     today = f"{now:%Y%m%d}"
     mins = now.hour * 60 + now.minute
-    if now.weekday() >= 5 or mins < OPEN_MIN or mins > 13 * 60 + 50:
+    if now.weekday() >= 5 or mins < OPEN_MIN or mins > 13 * 60 + 59:
         log(f"intraday: {now:%F %H:%M} outside trading hours")
         set_output(ran="false")
         return 0
@@ -169,7 +154,7 @@ def main() -> int:
     keys = [f"{'tse' if store[codes[i]]['exch'] == 'L' else 'otc'}_{codes[i]}.tw" for i in cidx]
     log(f"intraday: session {sess} {qtime}, universe {len(codes)} -> {len(cidx)} candidates near 120d high")
     resp, fails = mis_fetch(keys)
-    rows, quoted = [], 0
+    rows, quoted, excluded = [], 0, []
     for i in cidx:
         code = codes[i]
         q = parse_quote(resp[code]) if code in resp else None
@@ -180,6 +165,9 @@ def main() -> int:
         prev_c = store[code]["c"][t - 1]
         xr = bool(q["y"] and prev_c == prev_c and abs(q["y"] / prev_c - 1) > 0.001)
         if (not xr) and q["price"] >= mx120[i, t] and proj >= L.LIV_VX * avg20[i, t] and proj > 0:
+            if q.get("limit_up"):
+                excluded.append(dict(c=code, n=store[code]["name"], u=q.get("price")))
+                continue
             rows.append(dict(c=code, n=store[code]["name"], m=store[code]["exch"]))
     rows.sort(key=lambda r: r["c"])
     out = dict(session=f"{sess[:4]}-{sess[4:6]}-{sess[6:]}", quote_time=qtime,
@@ -187,8 +175,12 @@ def main() -> int:
                frac_lin=round(frac_lin, 3), frac_cur=round(frac_cur, 3), n_cand=len(cidx), n_quoted=quoted, rows=rows)
     os.makedirs(L.OUT, exist_ok=True)
     json.dump(out, open(OUTFILE, "w", encoding="utf-8"), ensure_ascii=False, separators=(",", ":"))
-    log(f"intraday: hits {len(rows)}, quoted {quoted}/{len(cidx)}, failed batches {len(fails)}")
-    log("  " + " ".join(f"{r['c']}{r['n']}" for r in rows))
+    log(f"intraday: hits {len(rows)}, quoted {quoted}/{len(cidx)}, failed batches {len(fails)}"
+        + (f", excluded {len(excluded)} limit-up" if excluded else ""))
+    if rows:
+        log("  " + " ".join(f"{r['c']}{r['n']}" for r in rows))
+    if excluded:
+        log("  excluded limit-up: " + " ".join(f"{r['c']}{r['n']}" for r in excluded))
     set_output(ran="true")
     return 0
 
